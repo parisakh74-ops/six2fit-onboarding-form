@@ -20,7 +20,8 @@ export type OnboardingBootstrap = {
 };
 
 export async function loadBootstrap(signal?: AbortSignal): Promise<OnboardingBootstrap> {
-  const response = await fetch("/api/onboarding/bootstrap", {
+  const endpoint = import.meta.env.VITE_ONBOARDING_BOOTSTRAP_PATH || "/api/onboarding/bootstrap";
+  const response = await fetch(endpoint, {
     method: "GET",
     credentials: "same-origin",
     headers: { Accept: "application/json" },
@@ -61,7 +62,8 @@ export async function submitOnboarding(
   form.append("verification_state", JSON.stringify(verificationState));
   for (const [key, value] of Object.entries(answers)) appendAnswer(form, key, value);
 
-  const response = await fetch("/api/onboarding/submit", {
+  const endpoint = import.meta.env.VITE_ONBOARDING_SUBMIT_PATH || "/api/onboarding/submit";
+  const response = await fetch(endpoint, {
     method: "POST",
     credentials: "same-origin",
     headers: {
