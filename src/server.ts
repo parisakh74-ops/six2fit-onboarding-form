@@ -2,6 +2,8 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleOnboardingBootstrap } from "./routes/api/onboarding/bootstrap";
+import { handleOnboardingSubmission } from "./routes/api/onboarding/submit";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -47,6 +49,20 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const url = new URL(request.url);
+      const action = url.searchParams.get("six2fit_api");
+      const isBootstrap =
+        (request.method === "GET" && url.pathname === "/api/onboarding/bootstrap") ||
+        (request.method === "POST" && action === "bootstrap");
+      const isSubmission = request.method === "POST" && (
+        url.pathname === "/api/onboarding/submit" || action === "submit"
+      );
+
+      // CloudLinux Passenger may rewrite application subpaths before TanStack's
+      // file router sees them. Dispatch the staging APIs at the server boundary.
+      if (isBootstrap) return await handleOnboardingBootstrap(request);
+      if (isSubmission) return await handleOnboardingSubmission(request);
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
