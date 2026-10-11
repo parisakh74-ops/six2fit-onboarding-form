@@ -6,11 +6,20 @@ import { z } from "zod";
 import { STEPS, validate, type Ctx } from "@/components/onboarding/steps";
 import { LABELS, OPTS, formatValue, isActive, type Answers, type Scope } from "@/lib/onboarding/data";
 import { loadBootstrap, submitOnboarding, type OnboardingBootstrap } from "@/lib/onboarding/integration";
+import { handleOnboardingBootstrap } from "./api/onboarding/bootstrap";
+import { handleOnboardingSubmission } from "./api/onboarding/submit";
 
 const STORAGE = "six2fit-onboarding-v5";
 const SCOPE_LABEL: Record<Scope, string> = { Diet: "برنامهٔ تغذیه", Training: "برنامهٔ تمرین", Combo: "تغذیه + تمرین", CIP: "CIP — تغذیه + تمرین" };
 
 export const Route = createFileRoute("/")({
+  server: {
+    handlers: {
+      POST: ({ request }) => new URL(request.url).searchParams.get("six2fit_api") === "bootstrap"
+        ? handleOnboardingBootstrap(request)
+        : handleOnboardingSubmission(request),
+    },
+  },
   validateSearch: z.object({ scope: z.enum(["Diet", "Training", "Combo", "CIP"]).optional() }),
   head: () => ({
     meta: [

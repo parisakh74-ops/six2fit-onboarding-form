@@ -20,12 +20,12 @@ export type OnboardingBootstrap = {
 };
 
 export async function loadBootstrap(signal?: AbortSignal): Promise<OnboardingBootstrap> {
-  const endpoint = new URL(import.meta.env["VITE_ONBOARDING_BOOTSTRAP_PATH"] || "/api/onboarding/bootstrap", window.location.origin);
+  const endpoint = new URL(import.meta.env["VITE_ONBOARDING_BOOTSTRAP_PATH"] || "/?six2fit_api=bootstrap", window.location.origin);
   const session = new URLSearchParams(window.location.search).get("session");
   if (!session) throw new Error("BOOTSTRAP_UNAVAILABLE");
   endpoint.searchParams.set("session", session);
   const response = await fetch(endpoint, {
-    method: "GET",
+    method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     ...(signal ? { signal } : {}),
@@ -65,7 +65,7 @@ export async function submitOnboarding(
   form.append("verification_state", JSON.stringify(verificationState));
   for (const [key, value] of Object.entries(answers)) appendAnswer(form, key, value);
 
-  const endpoint = import.meta.env["VITE_ONBOARDING_SUBMIT_PATH"] || "/api/onboarding/submit";
+  const endpoint = import.meta.env["VITE_ONBOARDING_SUBMIT_PATH"] || "/?six2fit_api=submit";
   const response = await fetch(endpoint, {
     method: "POST",
     credentials: "same-origin",

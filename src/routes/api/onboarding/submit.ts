@@ -19,7 +19,12 @@ function parseAnswer(value: FormDataEntryValue): unknown {
 export const Route = createFileRoute("/api/onboarding/submit")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: ({ request }) => handleOnboardingSubmission(request),
+    },
+  },
+});
+
+export async function handleOnboardingSubmission(request: Request) {
         try {
           if (!new URL(request.url).hostname.toLowerCase().includes("onboarding-staging")) return Response.json({ message: "Staging only" }, { status: 403 });
           const form = await request.formData();
@@ -61,7 +66,4 @@ export const Route = createFileRoute("/api/onboarding/submit")({
           console.error("Onboarding staging submission failed", error instanceof Error ? error.message : "Unknown error");
           return Response.json({ message: "Staging submission unavailable" }, { status: 503 });
         }
-      },
-    },
-  },
-});
+}

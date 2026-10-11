@@ -7,7 +7,12 @@ type StoredConsult = { payload?: { onboarding_prefill?: Record<string, unknown> 
 export const Route = createFileRoute("/api/onboarding/bootstrap")({
   server: {
     handlers: {
-      GET: async ({ request }) => {
+      GET: ({ request }) => handleOnboardingBootstrap(request),
+    },
+  },
+});
+
+export async function handleOnboardingBootstrap(request: Request) {
         try {
           if (!new URL(request.url).hostname.toLowerCase().includes("onboarding-staging")) return Response.json({ message: "Staging only" }, { status: 403 });
           const token = new URL(request.url).searchParams.get("session") ?? "";
@@ -26,7 +31,4 @@ export const Route = createFileRoute("/api/onboarding/bootstrap")({
         } catch {
           return Response.json({ message: "Invalid or expired session" }, { status: 401, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
         }
-      },
-    },
-  },
-});
+}
