@@ -164,7 +164,7 @@ const RULES: Rule[] = [
   [/^MS-06\.photo$/, (a) => a["MS-06.consent"] === true],
   // Add-ons are entitlement data returned by the server bootstrap. Never infer
   // a paid add-on from the product scope or a browser-supplied record id.
-  [/^MS-06/, (a) => Array.isArray(a.__entitlements) && a.__entitlements.includes("cellulite")],
+  [/^MS-06/, (a) => Array.isArray(a["__entitlements"]) && a["__entitlements"].includes("cellulite")],
   [/^CN-02$/, (a) => healthAnswered(a)],
 ];
 

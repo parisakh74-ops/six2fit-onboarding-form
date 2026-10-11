@@ -20,12 +20,15 @@ export type OnboardingBootstrap = {
 };
 
 export async function loadBootstrap(signal?: AbortSignal): Promise<OnboardingBootstrap> {
-  const endpoint = import.meta.env.VITE_ONBOARDING_BOOTSTRAP_PATH || "/api/onboarding/bootstrap";
+  const endpoint = new URL(import.meta.env["VITE_ONBOARDING_BOOTSTRAP_PATH"] || "/api/onboarding/bootstrap", window.location.origin);
+  const session = new URLSearchParams(window.location.search).get("session");
+  if (!session) throw new Error("BOOTSTRAP_UNAVAILABLE");
+  endpoint.searchParams.set("session", session);
   const response = await fetch(endpoint, {
     method: "GET",
     credentials: "same-origin",
     headers: { Accept: "application/json" },
-    signal,
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) throw new Error("BOOTSTRAP_UNAVAILABLE");
   const parsed = bootstrapSchema.safeParse(await response.json());
@@ -62,7 +65,7 @@ export async function submitOnboarding(
   form.append("verification_state", JSON.stringify(verificationState));
   for (const [key, value] of Object.entries(answers)) appendAnswer(form, key, value);
 
-  const endpoint = import.meta.env.VITE_ONBOARDING_SUBMIT_PATH || "/api/onboarding/submit";
+  const endpoint = import.meta.env["VITE_ONBOARDING_SUBMIT_PATH"] || "/api/onboarding/submit";
   const response = await fetch(endpoint, {
     method: "POST",
     credentials: "same-origin",
