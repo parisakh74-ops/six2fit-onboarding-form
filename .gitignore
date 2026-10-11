@@ -20,9 +20,15 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Environment files (templates are safe to commit; real values are not)
+.env*
+!.env.example
+!.env.staging.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/tasks.json
 .idea
 .DS_Store
 *.suo
