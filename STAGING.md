@@ -18,7 +18,7 @@ npm run build:shetaban
 ```
 
 - Application root: the staging domain document root
-- Startup file: `.output/server/index.mjs`
+- Startup file: `passenger.cjs`
 - Node.js: 20.x on the host
 - Application mode: production
 
