@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "staging: install", "type": "shell", "command": "npm install", "problemMatcher": [] },
+    { "label": "staging: test", "type": "shell", "command": "npm test -- --run", "problemMatcher": [] },
+    { "label": "staging: build", "type": "shell", "command": "npm run build:staging", "problemMatcher": [] },
+    { "label": "staging: dev", "type": "shell", "command": "npm run dev:staging", "isBackground": true, "problemMatcher": [] }
+  ]
+}
