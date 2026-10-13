@@ -1,0 +1,221 @@
+{
+ "source": "Production Zoho CRM Requests field metadata read 2026-10-13 via read-only getFields (no records read); Sandbox copy NOT yet verified",
+ "module": "Requests",
+ "total_fields": 257,
+ "fields": {
+  "Email": {
+   "type": "email",
+   "length": 100,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Sex": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "Male",
+    "Female"
+   ]
+  },
+  "Height_cm": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Current_Weight_Kg": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Goal_Weight": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Goal": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "Muscle Gain",
+    "Weight Reduction",
+    "Maintenance",
+    "0-weight reduction",
+    "1- bulk up",
+    "2- steady weight"
+   ]
+  },
+  "Daily_Activities1": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "Option 1",
+    "Option 2",
+    "Option 3",
+    "Very Active"
+   ]
+  },
+  "Smoke": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Alcohol1": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Neck_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Shoulder_Width": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Chest_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Calf_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Wrist_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Thigh_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Flexed_Arm_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Abdomen_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Hip_circumference": {
+   "type": "double",
+   "length": 16,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Workout_Location": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "Home or Home Gym",
+    "Full Gym"
+   ]
+  },
+  "Form_Complete": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Form_Completion_Date": {
+   "type": "datetime",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "uniqueformkey": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": true
+  },
+  "Deal": {
+   "type": "lookup",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "lookup_module": "Deals"
+  },
+  "Is_First_Request": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "True",
+    "False"
+   ]
+  },
+  "Product_Related_To": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Is_New_Record_Created": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  }
+ }
+}
