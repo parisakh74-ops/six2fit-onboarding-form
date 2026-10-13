@@ -65,8 +65,9 @@ const TEXT_KEYS = [
   "HL-05.name", "HL-05.dose", "HL-05.time", "HL-05.reason", "HL-06.name", "HL-08.type", "HL-08.area", "HL-08.when",
 ];
 
+// Null-prototype maps: keys such as `constructor` or `__proto__` must never resolve to inherited members.
 const FIXED: Record<string, FieldSpec> = (() => {
-  const m: Record<string, FieldSpec> = {};
+  const m: Record<string, FieldSpec> = Object.create(null) as Record<string, FieldSpec>;
   for (const k of ENUM_KEYS) m[k] = { t: "enum", opts: optValues(k) };
   for (const [k, v] of Object.entries(MULTI_KEYS)) m[k] = { t: "multi", opts: optValues(k), ...(v.max ? { max: v.max } : {}) };
   for (const [k, [min, max]] of Object.entries(NUM_KEYS)) m[k] = { t: "num", min, max };
@@ -89,7 +90,7 @@ const FIXED: Record<string, FieldSpec> = (() => {
 
 /** Specification of an answer key, or `undefined` when the key is not part of the form (reject). */
 export function specFor(key: string): FieldSpec | undefined {
-  const fixed = FIXED[key];
+  const fixed = Object.hasOwn(FIXED, key) ? FIXED[key] : undefined;
   if (fixed) return fixed;
   let m = /^NU-15\.freq\.([a-z]+)$/.exec(key);
   if (m && m[1] !== "none" && optValues("NU-15").includes(m[1] as string)) return { t: "enum", opts: optValues("NU-15.freq") };
@@ -98,7 +99,7 @@ export function specFor(key: string): FieldSpec | undefined {
   return undefined;
 }
 
-export const isFileKey = (key: string): boolean => key in FILE_KEYS;
+export const isFileKey = (key: string): boolean => Object.hasOwn(FILE_KEYS, key);
 
 /** ISO country -> dial prefix as sent by the form (`+98`). */
 export const dialOf = (iso: string): string | undefined => {

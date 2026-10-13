@@ -106,6 +106,13 @@ describe("HTTP layer: submit (multipart)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("prototype-pollution style keys are rejected as unknown fields, never crash", async () => {
+    const res = await handleSubmit(submitRequest({ answers: { ...validAnswers("Combo"), constructor: "x", __proto__: "x", toString: "x" } }), deps());
+    expect(res.status).toBe(422);
+    const issues = ((await res.json()) as { issues: Array<{ path: string; code: string }> }).issues;
+    expect(issues).toEqual(expect.arrayContaining([{ path: "constructor", code: "UNKNOWN_FIELD" }, { path: "toString", code: "UNKNOWN_FIELD" }]));
+  });
+
   it("error bodies never echo values", async () => {
     const res = await handleSubmit(submitRequest({ answers: validAnswers("Combo", { "ON-07": "super-secret-value@" }) }), deps());
     expect(res.status).toBe(422);

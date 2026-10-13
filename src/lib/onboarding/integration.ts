@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Answers, Scope } from "./data";
+import { fileOf } from "./files";
 
 const scopeSchema = z.enum(["Diet", "Training", "Combo", "CIP"]);
 
@@ -41,7 +42,39 @@ function makeSubmissionId() {
   throw new Error("SECURE_RANDOM_UNAVAILABLE");
 }
 
+/**
+ * One submission id per link until the submission succeeds: a retry after a lost response reuses it (same Idempotency-Key)
+ * instead of looking like a new submission. The server also deduplicates per link, so this is defence in depth.
+ */
+const SID_KEY = "six2fit-onboarding-sid:";
+function stableSubmissionId(token: string): string {
+  const key = SID_KEY + token.slice(-24);
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing && /^[0-9a-f-]{20,80}$/i.test(existing)) return existing;
+    const id = makeSubmissionId();
+    sessionStorage.setItem(key, id);
+    return id;
+  } catch {
+    return makeSubmissionId();
+  }
+}
+function forgetSubmissionId(token: string) {
+  try {
+    sessionStorage.removeItem(SID_KEY + token.slice(-24));
+  } catch {
+    /* ignore */
+  }
+}
+
 function appendAnswer(form: FormData, key: string, value: unknown) {
+  const remembered = fileOf(value);
+  if (remembered) {
+    form.append(`file:${key}`, remembered, remembered.name);
+    return;
+  }
+  // File metadata restored from autosave has no bytes: never send it as text ("[object Object]").
+  if (value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof File)) return;
   if (value instanceof File) {
     form.append(`file:${key}`, value, value.name);
     return;
@@ -58,7 +91,7 @@ export async function submitOnboarding(
   answers: Answers,
   verificationState: Record<string, string>,
 ) {
-  const submissionId = makeSubmissionId();
+  const submissionId = stableSubmissionId(bootstrap.form_session_token);
   const form = new FormData();
   form.append("form_session_token", bootstrap.form_session_token);
   form.append("submission_id", submissionId);
@@ -77,11 +110,14 @@ export async function submitOnboarding(
   });
   if (!response.ok) {
     if (response.status === 409) throw new Error("SUBMISSION_CONFLICT");
+    if (response.status === 401) throw new Error("SESSION_EXPIRED");
+    if (response.status === 422) throw new Error("SUBMISSION_INVALID");
     throw new Error("SUBMISSION_FAILED");
   }
   const result = await response.json().catch(() => ({}));
   if (!result || result.status !== "accepted" && result.status !== "completed") {
     throw new Error("SUBMISSION_INVALID_RESPONSE");
   }
+  forgetSubmissionId(bootstrap.form_session_token);
   return { submissionId, result };
 }

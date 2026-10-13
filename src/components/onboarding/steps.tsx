@@ -89,7 +89,7 @@ export const STEPS: Step[] = [
     show: () => true, keys: /^ON-(0[1-9]|1[12]|027)/,
     checks: (a) => [
       { k: "ON-01" }, { k: "ON-02", t: "age" }, { k: "ON-03" }, { k: "ON-04" },
-      { k: "ON-06.n", t: "phone" }, { k: "ON-07", t: "email" },
+      { k: "ON-06.cc", msg: "کد کشور را انتخاب کنید." }, { k: "ON-06.n", t: "phone" }, { k: "ON-07", t: "email" },
       { k: "ON-08", t: "num", min: 100, max: 250, unit: "سانتی‌متر" },
       { k: "ON-09.kg", t: "num", min: 25, max: 350, unit: "کیلوگرم" },
       { k: "ON-11" },
@@ -113,14 +113,14 @@ export const STEPS: Step[] = [
         <Q id="ON-05" label="شهر محل اقامت شما" prefill={c.pf("ON-05")}>
           <Text value={c.a["ON-05"]} onChange={(v) => c.set("ON-05", capWords(v))} autoCapitalize="words" autoComplete="address-level2" />
         </Q>
-        <Q id="ON-06" label="شماره تماس شما" required error={c.e["ON-06"] ?? c.e["ON-06.n"]} prefill={c.pf("ON-06")}>
+        <Q id="ON-06" label="شماره تماس شما" required error={c.e["ON-06"] ?? c.e["ON-06.cc"] ?? c.e["ON-06.n"]} prefill={c.pf("ON-06")}>
           <div className="flex gap-2" dir="ltr">
             <DialSelect iso={c.a["ON-06.iso"]} dial={c.a["ON-06.cc"]} onChange={(ct) => { c.set("ON-06.iso", ct.iso); c.set("ON-06.cc", `+${ct.dial}`); }} />
             <input className="field" type="tel" inputMode="tel" autoComplete="tel-national" placeholder="912 123 4567" value={c.a["ON-06.n"] ?? ""} onChange={(e) => c.set("ON-06.n", normalizePhone(e.target.value))} />
           </div>
         </Q>
         <Q id="ON-07" label="ایمیل شما" required error={c.e["ON-07"]} prefill={c.pf("ON-07")}>
-          <Text type="email" dir="ltr" value={c.a["ON-07"]} onChange={(v) => c.set("ON-07", v)} autoComplete="email" />
+          <Text type="email" dir="ltr" maxLength={100} value={c.a["ON-07"]} onChange={(v) => c.set("ON-07", v)} autoComplete="email" />
         </Q>
         <Q id="ON-08" label="قد فعلی شما" hint="پابرهنه کنار دیوار صاف بایستید؛ پاشنه‌ها به دیوار نزدیک باشند، بدن صاف باشد و سر روبه‌رو قرار بگیرد. فاصلهٔ زمین تا بالای سر را با کمک فرد دیگر اندازه بگیرید." required error={c.e["ON-08"]} prefill={c.pf("ON-08")}>
           <Num unit="سانتی‌متر" value={c.a["ON-08"]} onChange={(v) => c.set("ON-08", v)} />

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { STEPS, validate, type Ctx } from "@/components/onboarding/steps";
 import { LABELS, OPTS, formatValue, isActive, type Answers, type Scope } from "@/lib/onboarding/data";
 import { loadBootstrap, submitOnboarding, type OnboardingBootstrap } from "@/lib/onboarding/integration";
+import { isFileMeta } from "@/lib/onboarding/files";
 import { handleOnboardingBootstrap } from "./api/onboarding/bootstrap";
 import { handleOnboardingSubmission } from "./api/onboarding/submit";
 
@@ -89,7 +90,9 @@ function Onboarding() {
       if (raw) {
         const s = JSON.parse(raw);
         if (s && typeof s === "object" && s.a && typeof s.a === "object") {
-          setA({ ...bootstrap?.prefill, ...s.a, __entitlements: bootstrap!.entitlements });
+          // Chosen files cannot be restored (only their metadata was saved): the person selects them again.
+          const restored = Object.fromEntries(Object.entries(s.a as Record<string, unknown>).filter(([, v]) => !isFileMeta(v)));
+          setA({ ...bootstrap?.prefill, ...restored, __entitlements: bootstrap!.entitlements });
           setVer(s.ver && typeof s.ver === "object" ? s.ver : {});
           setStep(Math.min(Number.isInteger(s.step) ? s.step : 0, total - 1));
           setResumed(true);
@@ -165,7 +168,12 @@ function Onboarding() {
       top.current?.scrollIntoView({ behavior: "smooth" });
     } catch (error) {
       setStatus("idle");
-      setBootstrapError(error instanceof Error && error.message === "SUBMISSION_CONFLICT" ? "این فرم قبلاً با همین ارسال ثبت شده یا ارسال هم‌زمان تشخیص داده شد." : "ثبت اطلاعات انجام نشد. لطفاً دوباره تلاش کنید.");
+      const code = error instanceof Error ? error.message : "";
+      setBootstrapError(
+        code === "SUBMISSION_CONFLICT" ? "این فرم قبلاً با همین ارسال ثبت شده یا ارسال هم‌زمان تشخیص داده شد."
+        : code === "SESSION_EXPIRED" ? "لینک فرم منقضی شده است. لطفاً از لینک جدید استفاده کنید."
+        : code === "SUBMISSION_INVALID" ? "برخی پاسخ‌ها معتبر نیست. لطفاً مرور نهایی را بررسی و دوباره تلاش کنید."
+        : "ثبت اطلاعات انجام نشد. لطفاً دوباره تلاش کنید.");
     }
   };
 
@@ -264,10 +272,12 @@ function Success({ payload }: { payload: any }) {
         <h1 className="text-xl font-bold sm:text-2xl">اطلاعات شما با موفقیت ثبت شد</h1>
         <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-muted-foreground">تیم Six2Fit برنامهٔ شخصی‌سازی‌شدهٔ شما را آماده می‌کند و به‌زودی از طریق ایمیل و پیامک خبرتان می‌کنیم.</p>
       </div>
-      <details className="q-card text-start">
-        <summary className="cursor-pointer text-sm font-semibold">دادهٔ ارسال‌شده (JSON — نمایش آزمایشی)</summary>
-        <pre dir="ltr" className="mt-3 max-h-96 overflow-auto rounded-lg bg-muted p-3 text-left text-xs leading-5">{JSON.stringify(payload, null, 2)}</pre>
-      </details>
+      {import.meta.env.DEV && (
+        <details className="q-card text-start">
+          <summary className="cursor-pointer text-sm font-semibold">دادهٔ ارسال‌شده (JSON — فقط در توسعه)</summary>
+          <pre dir="ltr" className="mt-3 max-h-96 overflow-auto rounded-lg bg-muted p-3 text-left text-xs leading-5">{JSON.stringify(payload, null, 2)}</pre>
+        </details>
+      )}
     </Card>
   );
 }

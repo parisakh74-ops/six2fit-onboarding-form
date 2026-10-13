@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { GhostButton } from "./shell";
 import { cn } from "@/lib/utils";
 import type { Opt } from "@/lib/onboarding/data";
+import { rememberFile } from "@/lib/onboarding/files";
 
 export type PrefillState = { state?: "confirmed" | "edited" | undefined; onConfirm: () => void };
 
@@ -85,7 +86,7 @@ export function CheckLine({ checked, onChange, children }: { checked?: boolean; 
 }
 
 export function Text({ value, onChange, ...p }: { value?: string; onChange: (v: string) => void } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
-  return <input className="field" value={value ?? ""} onChange={(e) => onChange(e.target.value)} {...p} />;
+  return <input className="field" maxLength={255} value={value ?? ""} onChange={(e) => onChange(e.target.value)} {...p} />;
 }
 
 export function Num({ value, onChange, unit, ...p }: { value?: string; onChange: (v: string) => void; unit?: string  | undefined} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
@@ -98,7 +99,7 @@ export function Num({ value, onChange, unit, ...p }: { value?: string; onChange:
 }
 
 export function Area({ value, onChange, ...p }: { value?: string; onChange: (v: string) => void } & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">) {
-  return <textarea className="field" value={value ?? ""} onChange={(e) => onChange(e.target.value)} {...p} />;
+  return <textarea className="field" maxLength={2000} value={value ?? ""} onChange={(e) => onChange(e.target.value)} {...p} />;
 }
 
 export function Select({ value, onChange, options, placeholder }: { value?: string; onChange: (v: string) => void; options: string[]; placeholder?: string  | undefined}) {
@@ -137,7 +138,9 @@ export function FileDrop({ value, onChange, accept, maxMB, label, description, e
     const ext = "." + (f.name.split(".").pop() ?? "").toLowerCase();
     if (!okTypes.includes(ext)) return error?.("فرمت فایل مجاز نیست.");
     if (f.size > maxMB * 1024 * 1024) return error?.(`حجم فایل باید کمتر از ${maxMB.toLocaleString("fa")} مگابایت باشد.`);
-    onChange({ name: f.name, size: f.size, type: f.type, status: "uploaded" });
+    const meta: FileMeta = { name: f.name, size: f.size, type: f.type, status: "uploaded" };
+    rememberFile(meta, f);
+    onChange(meta);
   };
   if (value)
     return (

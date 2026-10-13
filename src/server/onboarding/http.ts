@@ -101,8 +101,8 @@ export async function handleSubmit(request: Request, deps: Deps = {}): Promise<R
   } catch {
     return plain(400, "INVALID_FORM");
   }
-  const answers: Record<string, string> = {};
-  const files: Record<string, { name: string; type: string; size: number; head: Uint8Array; bytes: Uint8Array }> = {};
+  const answers = Object.create(null) as Record<string, string>;
+  const files = Object.create(null) as Record<string, { name: string; type: string; size: number; head: Uint8Array; bytes: Uint8Array }>;
   for (const [name, value] of form.entries()) {
     if (name.startsWith("answer:")) {
       if (typeof value !== "string") return plain(400, "INVALID_FORM");

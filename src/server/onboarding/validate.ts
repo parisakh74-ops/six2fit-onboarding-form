@@ -153,7 +153,7 @@ export function validateSubmission(
 ): Validated {
   const now = ctx.now ?? new Date();
   const issues: Issue[] = [];
-  const typed: Record<string, AnswerValue> = {};
+  const typed = Object.create(null) as Record<string, AnswerValue>;
 
   const keys = Object.keys(rawAnswers);
   if (keys.length + Object.keys(files).length > MAX_KEYS) return { ok: false, issues: [{ path: "", code: "TOO_MANY_FIELDS" }] };
@@ -184,7 +184,7 @@ export function validateSubmission(
 
   const accepted: AcceptedFile[] = [];
   for (const [key, f] of Object.entries(files)) {
-    const allowed = FILE_KEYS[key];
+    const allowed = Object.hasOwn(FILE_KEYS, key) ? FILE_KEYS[key] : undefined;
     if (!allowed) {
       issues.push({ path: key.slice(0, 60), code: "UNKNOWN_FIELD" });
       continue;
