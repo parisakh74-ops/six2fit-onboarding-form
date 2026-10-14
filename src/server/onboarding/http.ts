@@ -4,6 +4,7 @@ import { StoreError } from "./errors";
 import type { OnboardingStore } from "./ports";
 import { createOnboardingService, type OnboardingService, type Result } from "./service";
 import { createRequestsStore } from "./crm/factory";
+import { FactStore, revocationKey } from "./payments/facts";
 
 /** Largest accepted request body. The form allows up to 7 files of 20 MB; photos are optional, so the limit is generous but bounded. */
 export const DEFAULT_MAX_BODY_BYTES = 80 * 1024 * 1024;
@@ -29,8 +30,10 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   if (kind === "file") store = new FileOnboardingStore(storageDir);
   else if (kind === "crm") store = createRequestsStore(env, join(storageDir, "onboarding-ledger"));
   else throw new StoreError("NOT_CONFIGURED", "unknown store", "CONFIG");
+  const payments = new FactStore(join(storageDir, "payments"));
   const service = createOnboardingService({
     store,
+    isRevoked: async (linkId) => (await payments.get(revocationKey(linkId), "revoked")) !== null,
     directory: new ConsultHandoffDirectory(storageDir),
     sink: new LocalFileSink(storageDir),
     secret,

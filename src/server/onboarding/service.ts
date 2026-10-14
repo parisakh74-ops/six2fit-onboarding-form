@@ -26,6 +26,8 @@ export type OnboardingServiceDeps = {
   directory: SubjectDirectory;
   sink: FileSink;
   secret: string;
+  /** True when the link was revoked (payment refunded/cancelled). Optional; a failing check fails closed (503). */
+  isRevoked?: (linkId: string) => Promise<boolean>;
   now?: () => number;
   /** Counters and codes only: never answers, tokens, ids of people or paths. */
   log?: (event: string, fields?: Record<string, string | number | boolean>) => void;
@@ -42,14 +44,27 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? (() => undefined);
 
-  function authorize(token: string): LinkClaims | Result {
+  async function authorize(token: string): Promise<LinkClaims | Result> {
+    let claims: LinkClaims;
     try {
-      return verifyLinkToken(token, deps.secret, now());
+      claims = verifyLinkToken(token, deps.secret, now());
     } catch (e) {
       const code = e instanceof TokenError ? e.code : "MALFORMED";
       log("onboarding.token_rejected", { code });
       return err(401, "INVALID_OR_EXPIRED_SESSION");
     }
+    if (deps.isRevoked) {
+      try {
+        if (await deps.isRevoked(claims.jti)) {
+          log("onboarding.link_revoked", {});
+          return err(403, "LINK_REVOKED");
+        }
+      } catch {
+        log("onboarding.revocation_check_failed", {});
+        return err(503, "STORAGE_UNAVAILABLE");
+      }
+    }
+    return claims;
   }
 
   const failure = (e: unknown, startedAt: number): Result => {
@@ -63,7 +78,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
 
   async function bootstrap(token: string): Promise<Result> {
     const startedAt = now();
-    const claims = authorize(token);
+    const claims = await authorize(token);
     if ("status" in claims) return claims;
     try {
       const resolved = await deps.directory.resolve(claims.subject);
@@ -87,7 +102,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
   async function submit(input: SubmitInput): Promise<Result> {
     const startedAt = now();
     if (!SUBMISSION_ID_PATTERN.test(input.submissionId) || input.idempotencyKey !== input.submissionId) return err(400, "INVALID_SUBMISSION");
-    const claims = authorize(input.token);
+    const claims = await authorize(input.token);
     if ("status" in claims) return claims;
 
     let prefillBases: Set<string>;
