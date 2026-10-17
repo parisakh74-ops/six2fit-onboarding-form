@@ -1,6 +1,7 @@
 import { canonicalJson, fingerprint } from "../canonical";
 import { StoreError } from "../errors";
 import type { StoredRef, SubmissionRecord } from "../ports";
+import { FIELD_DISPOSITION } from "./field-disposition";
 
 /**
  * Mapping of a validated Onboarding submission to a Zoho CRM `Requests` record.
@@ -32,22 +33,15 @@ const MEASURES: Record<string, string> = {
   "MS-07.wrist": "Wrist_circumference",
 };
 
-/** Ambiguous or missing targets, kept out of the structured fields on purpose (see the decisions list). */
-export const UNMAPPED_CANDIDATES: Record<string, string> = {
-  "ON-01": "Name_Form (255): inferred from the Forms mapping label only",
-  "ON-02": "no date-of-birth field; Age (integer) is derivable but is a PM decision",
-  "ON-06.n": "no phone field on Requests (lives on Contact/Lead)",
-  "ON-11=recomp": "no Goal picklist value for body recomposition",
-  "ON-18": "Stress is a 255-char text field in Requests, the form collects 0-10",
-  "TR-03": "Workouts_week picklist labels overlap (3-4, 4-5) and an actual value differs from its label",
-  "TR-04": "Workout_Session actual values do not match the form's options one to one",
-  "TR-05=gym_basic": "no Workout_Location value for a basic gym",
-  "TR-06": "Home_Equipment_List has no value for loop band, bench, step; 'none' is ambiguous",
-  "NU-*": "Requests nutrition fields are 255-char text or differently coded picklists",
-  "HL-*": "Requests health fields are boolean/255-char twins (Smoking vs Smoke, Surgery vs Surgery1): wrong-twin risk",
-  "MS-05.* photos": "fileupload fields cannot be set in the JSON create call; files go to the sink and are referenced in the raw JSON",
-  "CN-*": "no consent fields on Requests; consent is part of the raw JSON",
-};
+/**
+ * Answers whose structured target is undecided (ambiguous, wrong-twin risk, differing codes). They are NOT written to a
+ * structured field; they stay complete in the raw snapshot. Derived from `FIELD_DISPOSITION` (single source of truth).
+ */
+export const UNMAPPED_CANDIDATES: Record<string, string> = Object.fromEntries(
+  Object.entries(FIELD_DISPOSITION)
+    .filter(([, v]) => v.d === "decision")
+    .map(([k, v]) => [k, `${v.target ?? "no target"}${v.note ? `: ${v.note}` : ""}`]),
+);
 
 export const REQUEST_FIELD_LENGTH = { Email: 100, Product_Related_To: 255, uniqueformkey: 255 } as const;
 
@@ -69,6 +63,26 @@ export function rawDocument(r: SubmissionRecord): Record<string, unknown> {
     fingerprint: r.fingerprint,
   };
 }
+
+/** Initial status of every Request created by this integration (picklist ACTUAL value; present in Sandbox and Production). */
+export const INITIAL_REQUEST_STATUS = "Prospecting";
+/** Version of the answer catalogue / raw document layout (raw document field `v`). */
+export const ONBOARDING_FORM_VERSION = "onboarding-1";
+
+// Deterministic value guards: a value that does not fit its target is OMITTED from the structured field (it always
+// remains in the raw snapshot); the adapter never truncates, coerces or throws for a structured copy.
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v : undefined);
+const fit = (max: number) => (v: unknown): string | undefined => {
+  const t = str(v);
+  return t !== undefined && [...t].length <= max ? t : undefined;
+};
+const t255 = fit(255);
+const tLong = fit(32_000);
+const yn = (v: unknown): boolean | undefined => (v === "yes" ? true : v === "no" ? false : undefined);
+const scale010 = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 10 ? v : undefined);
+const isoDay = (v: unknown): string | undefined => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+const hhmm = (v: unknown): string | undefined => (typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : undefined);
+const codes = (v: unknown): string[] | undefined => (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string") ? (v as string[]) : undefined);
 
 export function buildRequestsRecord(
   r: SubmissionRecord,
@@ -93,6 +107,11 @@ export function buildRequestsRecord(
     Deal: { id: r.subject.dealId },
     Form_Complete: true,
     Form_Completion_Date: iso(r.submitted_at),
+    Request_Status: INITIAL_REQUEST_STATUS,
+    Submission_Id: r.subject_key,
+    Form_Version: ONBOARDING_FORM_VERSION,
+    Submitted_At: iso(r.submitted_at),
+    Onboarding_Scope: r.scope,
     [opts.rawField]: raw,
   };
   if (opts.setNewRecordFlag) rec["Is_New_Record_Created"] = true;
@@ -113,6 +132,63 @@ export function buildRequestsRecord(
   if (typeof a["ON-20"] === "string") rec["Alcohol1"] = a["ON-20"] !== "none";
   set("Workout_Location", LOCATION[a["TR-05"] as string]);
   for (const [k, field] of Object.entries(MEASURES)) set(field, a[k]);
+
+  // --- Sandbox-verified structured copies (types, lengths and meaning checked against the CA Dev Requests metadata).
+  set("Date_of_Birth", isoDay(a["ON-02"]));
+  set("Country_of_Residence", t255(a["ON-04"]));
+  set("City_of_Residence", t255(a["ON-05"]));
+  const cc = a["ON-06.cc"];
+  const nn = a["ON-06.n"];
+  if (typeof cc === "string" && /^\+\d{1,4}$/.test(cc) && typeof nn === "string" && /^\d{4,15}$/.test(nn)) set("Phone", t255(cc + nn));
+  set("Sleep_Quality", t255(a["ON-17"]));
+  set("Stress_Level_0_10", scale010(a["ON-18"]));
+  set("Menstrual_Status", t255(a["ON-21"]));
+  set("Pregnancy_Breastfeeding_Status", t255(a["HL-03a"]));
+  set("Breastfeeding_Age_Range", t255(a["HL-03b"]));
+  set("Weight_Loss_Medication_Status", t255(a["HL-06"]));
+  set("Weight_Loss_Medication_Details", t255(a["HL-06.name"]));
+  set("Pain_Intensity_0_10", scale010(a["TR-08.severity"]));
+  // consent: only an explicit TRUE answer is recorded, with the submission time (no consent is ever inferred)
+  const stamp = iso(r.submitted_at);
+  if (a["CN-01"] === true) { rec["Information_Accuracy_Confirmed"] = true; rec["Information_Accuracy_At"] = stamp; }
+  if (a["CN-02"] === true) { rec["Health_Data_Consent"] = true; rec["Health_Consent_At"] = stamp; }
+  if (a["CN-03"] === true) { rec["Terms_Accepted"] = true; rec["Terms_Accepted_At"] = stamp; }
+  if (a["MS-04"] === "no") rec["Body_Photo_Declined"] = true;
+  if (a["MS-04.ack"] === true) rec["Body_Photo_Decline_Acknowledged"] = true;
+  // nutrition
+  const diet = str(a["NU-01"]);
+  if (diet !== undefined) set("Dietary_Pattern", t255(diet === "other" && str(a["NU-01.other"]) ? `other: ${a["NU-01.other"] as string}` : diet));
+  set("Severe_Food_Reaction", yn(a["NU-02"]));
+  const allergies = codes(a["NU-03"]);
+  if (allergies) set("Food_Allergy_Intolerance", tLong([...allergies, ...(str(a["NU-03.other"]) ? [`other: ${a["NU-03.other"] as string}`] : [])].join(", ")));
+  set("Food_Dislikes", tLong(a["NU-04"]));
+  set("Meal_Routine_Breakfast", tLong(a["NU-06.breakfast"]));
+  set("Meal_Routine_Lunch", tLong(a["NU-06.lunch"]));
+  set("Meal_Routine_Dinner", tLong(a["NU-06.dinner"]));
+  set("Meal_Routine_Snacks", tLong(a["NU-06.snacks"]));
+  set("Meal_Routine_Drinks", tLong(a["NU-06.drinks"]));
+  set("Fasting_Status", t255(a["NU-08"]));
+  const eatFrom = hhmm(a["NU-08.start"]);
+  const eatTo = hhmm(a["NU-08.end"]);
+  if (eatFrom && eatTo) set("Fasting_Eating_Window", `${eatFrom}-${eatTo}`);
+  set("Restaurant_Frequency", t255(a["NU-10"]));
+  set("Has_Diet_History", yn(a["NU-11"]));
+  set("Diet_History_Results", tLong(a["NU-11.detail"]));
+  set("Daily_Water_Glasses", t255(a["NU-13"]));
+  set("Caffeine_Details", tLong(a["NU-14"]));
+  const symptoms = codes(a["NU-15"])?.filter((x) => x !== "none");
+  if (symptoms && symptoms.length > 0) {
+    const frequency: Record<string, unknown> = {};
+    for (const sym of symptoms) if (typeof a[`NU-15.freq.${sym}`] === "string") frequency[sym] = a[`NU-15.freq.${sym}`];
+    set("GI_Symptoms_JSON", tLong(canonicalJson({ symptoms, frequency })));
+  }
+  set("GI_Food_Triggers", tLong(a["NU-16"]));
+  set("Appetite_Level", t255(a["NU-17"]));
+  set("Eating_Control", t255(a["NU-18"]));
+  const barriers = codes(a["NU-19"]);
+  if (barriers) set("Diet_Barriers", tLong(barriers.join(", ")));
+  set("Supplement_Preference", t255(a["NU-21"]));
+  set("Nutrition_Notes", tLong(a["NU-22"]));
   return { record: rec, rawChars };
 }
 

@@ -88,6 +88,9 @@ const FIXED: Record<string, FieldSpec> = (() => {
   return m;
 })();
 
+/** Every statically known answer key (dynamic families `NU-15.freq.*` and `HL-04.*.name|dose` are resolved by `specFor`). */
+export const STATIC_KEYS: readonly string[] = Object.keys(FIXED);
+
 /** Specification of an answer key, or `undefined` when the key is not part of the form (reject). */
 export function specFor(key: string): FieldSpec | undefined {
   const fixed = Object.hasOwn(FIXED, key) ? FIXED[key] : undefined;

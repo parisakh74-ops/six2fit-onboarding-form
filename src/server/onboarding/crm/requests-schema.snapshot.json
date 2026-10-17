@@ -1,5 +1,5 @@
 {
- "source": "Production Zoho CRM Requests field metadata read 2026-10-13 via read-only getFields (no records read); Sandbox copy NOT yet verified",
+ "source": "Production Zoho CRM Requests field metadata read 2026-10-13 via read-only getFields (26 mapping-relevant fields) PLUS the CA Dev Sandbox (org 850673613) Requests metadata read 2026-10-17 through the Setup API (GET only, 322 fields): the 49 added Sandbox-only fields and Request_Status. The Production module does NOT necessarily lack the Sandbox-only fields: the Production snapshot here is incomplete and must not be used to infer their absence.",
  "module": "Requests",
  "total_fields": 257,
  "fields": {
@@ -216,6 +216,431 @@
    "read_only": false,
    "formula": false,
    "unique": false
+  },
+  "Date_of_Birth": {
+   "type": "date",
+   "length": 20,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Country_of_Residence": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "City_of_Residence": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Phone": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Sleep_Quality": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Stress_Level_0_10": {
+   "type": "integer",
+   "length": 9,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Menstrual_Status": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Pregnancy_Breastfeeding_Status": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Breastfeeding_Age_Range": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Weight_Loss_Medication_Status": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Weight_Loss_Medication_Details": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Information_Accuracy_Confirmed": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Information_Accuracy_At": {
+   "type": "datetime",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Health_Data_Consent": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Health_Consent_At": {
+   "type": "datetime",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Health_Consent_Version": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Terms_Accepted": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Terms_Accepted_At": {
+   "type": "datetime",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Terms_Version": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Dietary_Pattern": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Severe_Food_Reaction": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Food_Allergy_Intolerance": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Food_Dislikes": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Meal_Routine_Breakfast": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Meal_Routine_Lunch": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Meal_Routine_Dinner": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Meal_Routine_Snacks": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Meal_Routine_Drinks": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Fasting_Status": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Fasting_Eating_Window": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Restaurant_Frequency": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Has_Diet_History": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Diet_History_Results": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Daily_Water_Glasses": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Caffeine_Details": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "GI_Symptoms_JSON": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "GI_Food_Triggers": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Appetite_Level": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Eating_Control": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Supplement_Preference": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Diet_Barriers": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Nutrition_Notes": {
+   "type": "textarea",
+   "length": 32000,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Pain_Intensity_0_10": {
+   "type": "integer",
+   "length": 9,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Body_Photo_Declined": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Body_Photo_Decline_Acknowledged": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Submission_Id": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Form_Version": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Submitted_At": {
+   "type": "datetime",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Onboarding_Scope": {
+   "type": "text",
+   "length": 255,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Review_Required": {
+   "type": "boolean",
+   "length": 5,
+   "read_only": false,
+   "formula": false,
+   "unique": false
+  },
+  "Request_Status": {
+   "type": "picklist",
+   "length": 120,
+   "read_only": false,
+   "formula": false,
+   "unique": false,
+   "picklist_actual_values": [
+    "-None-",
+    "Prospecting",
+    "Package Prepared",
+    "Quality Control",
+    "Package Release",
+    "Closed",
+    "Started"
+   ]
   }
+ },
+ "sandbox_verified": {
+  "date": "2026-10-17",
+  "org": "850673613",
+  "total_fields": 322,
+  "fields_added": [
+   "Appetite_Level",
+   "Body_Photo_Decline_Acknowledged",
+   "Body_Photo_Declined",
+   "Breastfeeding_Age_Range",
+   "Caffeine_Details",
+   "City_of_Residence",
+   "Country_of_Residence",
+   "Daily_Water_Glasses",
+   "Date_of_Birth",
+   "Diet_Barriers",
+   "Diet_History_Results",
+   "Dietary_Pattern",
+   "Eating_Control",
+   "Fasting_Eating_Window",
+   "Fasting_Status",
+   "Food_Allergy_Intolerance",
+   "Food_Dislikes",
+   "Form_Version",
+   "GI_Food_Triggers",
+   "GI_Symptoms_JSON",
+   "Has_Diet_History",
+   "Health_Consent_At",
+   "Health_Consent_Version",
+   "Health_Data_Consent",
+   "Information_Accuracy_At",
+   "Information_Accuracy_Confirmed",
+   "Meal_Routine_Breakfast",
+   "Meal_Routine_Dinner",
+   "Meal_Routine_Drinks",
+   "Meal_Routine_Lunch",
+   "Meal_Routine_Snacks",
+   "Menstrual_Status",
+   "Nutrition_Notes",
+   "Onboarding_Scope",
+   "Pain_Intensity_0_10",
+   "Phone",
+   "Pregnancy_Breastfeeding_Status",
+   "Request_Status",
+   "Restaurant_Frequency",
+   "Review_Required",
+   "Severe_Food_Reaction",
+   "Sleep_Quality",
+   "Stress_Level_0_10",
+   "Submission_Id",
+   "Submitted_At",
+   "Supplement_Preference",
+   "Terms_Accepted",
+   "Terms_Accepted_At",
+   "Terms_Version",
+   "Weight_Loss_Medication_Details",
+   "Weight_Loss_Medication_Status"
+  ],
+  "onboarding_raw_json": "NOT CREATED: field creation refused with FIELD_LIMIT_EXCEEDED (large multi-line limit of the module reached)"
  }
 }
