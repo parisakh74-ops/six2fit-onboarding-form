@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleRuntimeInfo } from "./server/runtime-info";
 import { handleOnboardingBootstrap } from "./routes/api/onboarding/bootstrap";
 import { handleOnboardingSubmission } from "./routes/api/onboarding/submit";
 
@@ -49,6 +50,8 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const runtimeInfo = handleRuntimeInfo(request); // staging-only read-only build/start-time probe
+      if (runtimeInfo) return runtimeInfo;
       const url = new URL(request.url);
       const action = url.searchParams.get("six2fit_api");
       const isBootstrap =
