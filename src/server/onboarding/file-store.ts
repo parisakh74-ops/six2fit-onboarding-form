@@ -93,6 +93,19 @@ export class LocalFileSink implements FileSink {
 /** The Consultation hand-off keeps its answers in `<storage>/consult/<id>.json`; only the mapped prefill is read. */
 const PREFILL_KEYS = new Set(["ON-01", "ON-03", "ON-06.iso", "ON-06.cc", "ON-06.n", "ON-07", "ON-08", "ON-09.kg", "timezone"]);
 
+/**
+ * The Consultation payload stores `ON-06.n` as E.164 (`+<dial><local>`, see its `normalizePhone`), while the
+ * Onboarding field `ON-06.n` is the national number (digits only; the dial code lives in `ON-06.cc`).
+ * This is the exact inverse of that join: it removes the `<cc>` prefix only when the value starts with it.
+ * Anything else (already national, different dial code, no digits left) is returned unchanged so that a
+ * mismatch stays visible to the validation instead of being guessed.
+ */
+export function nationalPhoneFromPrefill(value: string, dial: unknown): string {
+  if (typeof dial !== "string" || !/^\+\d{1,4}$/.test(dial) || !value.startsWith(dial)) return value;
+  const national = value.slice(dial.length);
+  return /^\d+$/.test(national) ? national : value;
+}
+
 export class ConsultHandoffDirectory implements SubjectDirectory {
   constructor(private readonly storageDir: string) {}
 
@@ -119,6 +132,8 @@ export class ConsultHandoffDirectory implements SubjectDirectory {
     for (const [k, v] of Object.entries(payload.onboarding_prefill ?? {})) {
       if (PREFILL_KEYS.has(k) && (typeof v === "string" || typeof v === "number") && String(v).length <= 255) prefill[k] = v;
     }
+    const phone = prefill["ON-06.n"];
+    if (typeof phone === "string") prefill["ON-06.n"] = nationalPhoneFromPrefill(phone, prefill["ON-06.cc"]);
     return { prefill };
   }
 }
