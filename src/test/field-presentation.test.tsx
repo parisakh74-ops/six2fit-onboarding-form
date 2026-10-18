@@ -18,6 +18,20 @@ describe("country code selection and preserved validation", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ iso: "CA", dial: "1" }));
   });
 
+  it("shows a neutral prompt, not a country, until one is chosen", () => {
+    render(<DialSelect onChange={vi.fn()} />);
+    const trigger = screen.getByRole("button", { expanded: false });
+    expect(trigger.textContent).toContain("کد کشور");
+    expect(trigger.textContent).not.toMatch(/Canada|کانادا|\+\s?\d/);
+  });
+
+  it("shows the chosen country code once a value is present", () => {
+    render(<DialSelect iso="CA" dial="+1" onChange={vi.fn()} />);
+    const trigger = screen.getByRole("button", { expanded: false });
+    expect(trigger.textContent).toMatch(/\+1/);
+    expect(trigger.textContent).not.toContain("کد کشور");
+  });
+
   it("still rejects missing required fields without requiring optional referral contact", () => {
     const personal = STEPS.find((step) => step.id === "personal");
     if (!personal) throw new Error("Missing personal step");

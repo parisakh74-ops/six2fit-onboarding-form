@@ -252,7 +252,7 @@ export function CountrySelect({ value, onChange }: { value?: string; onChange: (
 /** Dial-code picker; the selected country (ISO) is kept so shared codes like +1 stay unambiguous. */
 export function DialSelect({ iso, dial, onChange }: { iso?: string; dial?: string; onChange: (c: Country) => void }) {
   const cur = byIso(iso) ?? COUNTRY_LIST.find((c) => `+${c.dial}` === dial);
-  return <Picker compact value={cur} onSelect={onChange} search={searchDial} placeholder="Canada +1" render={(c) => <span dir="ltr">{flagOf(c.iso)} +{c.dial}</span>} />;
+  return <Picker compact value={cur} onSelect={onChange} search={searchDial} placeholder="کد کشور" render={(c) => <span dir="ltr">{flagOf(c.iso)} +{c.dial}</span>} />;
 }
 
 export function ImageCards({ value, onChange, options, images, exclusive = [] }: { value?: string[]; onChange: (v: string[]) => void; options: Opt[]; images: Record<string, string>; exclusive?: string[] }) {
