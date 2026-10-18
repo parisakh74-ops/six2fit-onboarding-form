@@ -180,6 +180,7 @@
   .chip { @apply inline-flex items-center gap-1 rounded-xl border border-border px-2.5 py-1 text-[12px] font-medium; }
   .range { @apply w-full accent-brand; }
   .range:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+  .range[data-untouched="true"] { opacity: 0.55; }
   .q-card[data-error="true"] .field, label:has(> [role="alert"]) .field { border-color: var(--destructive); }
   .q-card [role="alert"] { @apply text-[13px] font-medium; }
   .onboarding-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }

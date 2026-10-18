@@ -119,9 +119,13 @@ export function Scale({ value, onChange, min = 0, max = 10, lo, hi }: { value?: 
         <span className={cn("text-4xl font-bold tabular-nums", touched ? "text-brand" : "text-muted-foreground/40")}>{typeof value === "number" ? value.toLocaleString("fa") : "–"}</span>
         <span className="text-sm text-muted-foreground">/ {max.toLocaleString("fa")}</span>
       </div>
+      {/* Until the person acts there is no answer: the thumb rests at the middle only as a starting position, so it is dimmed,
+          announced as "not selected" and explained below. Nothing is stored until the control is moved or clicked. */}
       <input type="range" dir="rtl" className="range" min={min} max={max} step={1} value={touched ? value : Math.round((min + max) / 2)}
+        data-untouched={touched ? undefined : "true"} aria-valuetext={touched ? undefined : "انتخاب نشده"}
         onChange={(e) => onChange(Number(e.target.value))} onClick={(e) => onChange(Number((e.target as HTMLInputElement).value))} />
       <div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{lo ?? min.toLocaleString("fa")}</span><span>{hi ?? max.toLocaleString("fa")}</span></div>
+      {!touched && <p className="mt-2 text-center text-xs text-muted-foreground">برای ثبت پاسخ، اسلایدر را حرکت دهید یا روی نوار بزنید.</p>}
     </div>
   );
 }
