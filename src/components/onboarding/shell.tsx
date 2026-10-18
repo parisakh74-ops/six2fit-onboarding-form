@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import logoAsset from "@/assets/6tofit-logo.webp.asset.json";
+import logoSrc from "@/assets/brand/6toFit_logotype_Black_1.svg";
 
 export function Logo() {
   return (
     <img
-      src={logoAsset.url}
+      src={logoSrc}
       alt="6toFit"
       className="h-6 w-auto select-none sm:h-7"
       draggable={false}
