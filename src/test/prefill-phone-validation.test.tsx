@@ -17,7 +17,9 @@ describe("prefilled phone passes the national-number validation", () => {
   });
 
   it("still rejects an E.164 value in the national field (guards the conversion at the bootstrap boundary)", () => {
-    expect(personalErrors({ "ON-06.cc": "+1", "ON-06.n": "+14165550100" })).toHaveProperty("ON-06.n");
+    expect(personalErrors({ "ON-06.cc": "+1", "ON-06.n": "+14165550100" })).toHaveProperty(
+      "ON-06.n",
+    );
   });
 
   it("still requires the number and the dial code when nothing is prefilled", () => {

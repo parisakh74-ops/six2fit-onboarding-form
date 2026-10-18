@@ -40,11 +40,21 @@ describe("ConsultHandoffDirectory.resolve: phone prefill", () => {
   });
 
   const write = (prefill: Record<string, unknown>) =>
-    writeFile(join(dir, "consult", `${CONSULT_ID}.json`), JSON.stringify({ payload: { onboarding_prefill: prefill } }));
-  const resolve = () => new ConsultHandoffDirectory(dir).resolve({ kind: "consult", consultSubmissionId: CONSULT_ID });
+    writeFile(
+      join(dir, "consult", `${CONSULT_ID}.json`),
+      JSON.stringify({ payload: { onboarding_prefill: prefill } }),
+    );
+  const resolve = () =>
+    new ConsultHandoffDirectory(dir).resolve({ kind: "consult", consultSubmissionId: CONSULT_ID });
 
   it("returns the national number for a Consultation record that holds E.164", async () => {
-    await write({ "ON-01": "Synthetic Tester", "ON-06.iso": "CA", "ON-06.cc": "+1", "ON-06.n": "+14165550100", "ON-07": "synthetic@example.test" });
+    await write({
+      "ON-01": "Synthetic Tester",
+      "ON-06.iso": "CA",
+      "ON-06.cc": "+1",
+      "ON-06.n": "+14165550100",
+      "ON-07": "synthetic@example.test",
+    });
     const r = await resolve();
     expect(r?.prefill["ON-06.n"]).toBe("4165550100");
     expect(r?.prefill["ON-06.cc"]).toBe("+1");
