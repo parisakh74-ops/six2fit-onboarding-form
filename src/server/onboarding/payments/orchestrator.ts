@@ -14,7 +14,7 @@ import { DeliveryError, PaymentError, type DealResolver, type LinkDelivery, type
 export type Outcome =
   | { state: "not_paid"; status: string }
   | { state: "awaiting_deal" }
-  | { state: "needs_review"; reason: "partial_refund" | "scope_unknown" | "delivery_unknown" | "delivery_exhausted" | "deal_ambiguous" | "link_conflict" }
+  | { state: "needs_review"; reason: "partial_refund" | "scope_unknown" | "delivery_unknown" | "delivery_exhausted" | "deal_ambiguous" | "link_conflict" | "delivery_rejected" | "link_expired" }
   /** ONB-PAY-01: only the FIRST period is invited automatically; later periods are started manually by staff. */
   | { state: "not_first_period" }
   | { state: "delivery_in_progress" }
@@ -85,6 +85,8 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
 
   async function deliver(orderId: string, key: string, deal: ResolvedDeal & { scope: NonNullable<ResolvedDeal["scope"]> }, exp: number): Promise<Outcome> {
     const names = await deps.facts.names(key);
+    // A permanent refusal (no/invalid/opted-out recipient, sender not allowed) waits for a human: never retried by a later event.
+    if (names.includes("review-delivery_rejected")) return { state: "needs_review", reason: "delivery_rejected" };
     const attempts = names.filter((n) => /^delivery-\d+-sending$/.test(n)).map((n) => Number(/^delivery-(\d+)-/.exec(n)?.[1])).sort((a, b) => a - b);
     const last = attempts.at(-1) ?? 0;
     if (last > 0) {
@@ -101,12 +103,26 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
       }
       if (now() - result.at < backoff) return { state: "delivery_retry_later" };
     }
+    // Never send a link that is expired (or about to be) or that was revoked meanwhile (a retry can come days later).
+    if (exp - Math.floor(now() / 1000) < 60) {
+      await deps.facts.put(key, "review-link_expired", { at: now() });
+      return { state: "needs_review", reason: "link_expired" };
+    }
+    if (await deps.facts.get(key, "revoked")) return { state: "revoked", reason: "revoked" };
     const attempt = last + 1;
     // Durable marker BEFORE the send: from here on an outcome we did not record is "unknown", not "not sent".
     if (!(await deps.facts.put(key, `delivery-${attempt}-sending`, { at: now() }))) return { state: "delivery_in_progress" };
+    let reference: string | undefined;
     try {
-      await deps.delivery.send({ dealId: deal.dealId, contactId: deal.contactId, orderId, link: mintLink(orderId, deal, exp), attempt });
+      const sent = await deps.delivery.send({ dealId: deal.dealId, contactId: deal.contactId, orderId, link: mintLink(orderId, deal, exp), attempt });
+      reference = sent && typeof sent === "object" && typeof sent.reference === "string" && /^[A-Za-z0-9_.:-]{1,200}$/.test(sent.reference) ? sent.reference : undefined;
     } catch (e) {
+      if (e instanceof DeliveryError && e.kind === "permanent") {
+        await deps.facts.put(key, `delivery-${attempt}-result`, { status: "refused", permanent: true, code: e.code, at: now() });
+        await deps.facts.put(key, "review-delivery_rejected", { code: e.code, at: now() });
+        log("payment.delivery_rejected", { attempt });
+        return { state: "needs_review", reason: "delivery_rejected" };
+      }
       const ambiguous = !(e instanceof DeliveryError) || e.kind === "ambiguous";
       await deps.facts.put(key, `delivery-${attempt}-result`, { status: ambiguous ? "unknown" : "refused", code: e instanceof DeliveryError ? e.code : "UNEXPECTED", at: now() });
       log("payment.delivery_failed", { attempt, ambiguous });
@@ -116,7 +132,8 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
       }
       return { state: "delivery_retry_later" };
     }
-    await deps.facts.put(key, `delivery-${attempt}-result`, { status: "sent", at: now() });
+    // "sent" = the provider ACCEPTED the message; it is not proof that it reached an inbox.
+    await deps.facts.put(key, `delivery-${attempt}-result`, { status: "sent", proof: "provider_accepted", ...(reference ? { reference } : {}), at: now() });
     log("payment.link_delivered", { attempt });
     return { state: "delivered", jtiHint: linkIdForOrder(orderId).slice(0, 6) };
   }

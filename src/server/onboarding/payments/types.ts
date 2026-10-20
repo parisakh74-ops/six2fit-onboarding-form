@@ -50,8 +50,12 @@ export interface DealResolver {
 }
 
 export class DeliveryError extends Error {
-  /** `definite`: the provider refused, nothing was sent. `ambiguous`: it may have been sent (timeout, unreadable answer). */
-  constructor(public readonly kind: "definite" | "ambiguous", public readonly code: string) {
+  /**
+   * `definite`: the provider refused, nothing was sent; a later attempt may succeed (limit, temporary error).
+   * `permanent`: nothing was sent and retrying cannot help without a human (no/invalid/opted-out recipient, sender not allowed).
+   * `ambiguous`: it may have been sent (timeout, unreadable answer): never resent automatically.
+   */
+  constructor(public readonly kind: "definite" | "permanent" | "ambiguous", public readonly code: string) {
     super(`delivery ${kind}: ${code}`);
     this.name = "DeliveryError";
   }
@@ -59,7 +63,11 @@ export class DeliveryError extends Error {
 
 /** Sends the individual link (e-mail / WhatsApp). The channel and provider are a product decision (D-PAY-7). */
 export interface LinkDelivery {
-  send(input: { dealId: string; contactId: string; orderId: string; link: string; attempt: number }): Promise<void>;
+  /**
+   * Resolves ONLY when the provider ACCEPTED the message (that is not proof of inbox delivery). May return an opaque provider
+   * reference (e.g. a message id) that is stored with the delivery fact. Throws `DeliveryError` otherwise.
+   */
+  send(input: { dealId: string; contactId: string; orderId: string; link: string; attempt: number }): Promise<void | { reference?: string }>;
 }
 
 export class PaymentError extends Error {

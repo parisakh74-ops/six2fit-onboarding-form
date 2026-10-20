@@ -111,6 +111,12 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
   const clientSecret = get("SIX2FIT_ZOHO_CLIENT_SECRET");
   const refreshToken = get("SIX2FIT_ZOHO_REFRESH_TOKEN");
   if (!clientId || !clientSecret || !refreshToken) notConfigured("credentials missing");
+  // The REST API addresses a module by its API name. A renamed custom module keeps its original API name: the Sandbox Setup UI
+  // (observed 2026-10-20) lists the module displayed as "Requests" under the module name `CustomModule3`, and the Trello discovery
+  // doc says the same for Production. The default below is therefore NOT trusted for a live Sandbox: set the real API name
+  // explicitly (readiness reports a mismatch as ENV_UNVERIFIED / missing Requests fields).
+  const moduleApiName = get("SIX2FIT_ONBOARDING_REQUESTS_MODULE") || REQUESTS_MODULE;
+  if (!/^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(moduleApiName)) notConfigured("requests module api name is invalid");
   const modeRaw = get("SIX2FIT_ONBOARDING_CRM_PERSISTENCE") || "raw-field";
   if (modeRaw !== "raw-field" && modeRaw !== "workdrive-ref" && modeRaw !== "workdrive-key") notConfigured("unknown persistence mode");
   const mode: "raw-field" | "workdrive-ref" | "workdrive-key" = modeRaw === "workdrive-ref" ? "workdrive-ref" : modeRaw === "workdrive-key" ? "workdrive-key" : "raw-field";
@@ -152,7 +158,7 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
     clientId,
     clientSecret,
     refreshToken,
-    moduleApiName: REQUESTS_MODULE,
+    moduleApiName,
     persistence: mode,
     rawField,
     docRefField,

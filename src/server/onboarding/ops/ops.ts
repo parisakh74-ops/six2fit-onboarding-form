@@ -100,6 +100,9 @@ export async function runReadiness(rt: Runtime, env: Record<string, string | und
   }
   add({ name: "environment_isolation", status: crm.config.environment === "sandbox" && !crm.config.moduleIdPrefix.startsWith("6067417000") ? "pass" : "fail", code: "SANDBOX_ONLY" });
   add({ name: "expected_org_matches_crm_config", status: (env["SIX2FIT_EXPECTED_ORG_ID"] ?? "").trim() === crm.config.orgZgid ? "pass" : "fail", code: "ORG_ID" });
+  // Workflow isolation: the Sandbox still has active rules pointing at the Production Flow app. The writer suppresses workflows
+  // (`trigger: []`) unless explicitly told otherwise; that suppression is documented by Zoho but not yet observed in the Sandbox.
+  add({ name: "crm_workflows_suppressed_on_create", status: crm.config.triggerAutomations ? "warn" : "pass", code: "TRIGGER_AUTOMATIONS_ON" });
   add({ name: "uploads_not_stored_locally", status: crm.persistence === "raw-field" ? "warn" : crm.sink.deferred === true ? "pass" : "fail", code: crm.persistence === "raw-field" ? "RAW_FIELD_LOCAL_SINK" : "DEFERRED_SINK" });
   add(await probeStorage(rt.ops?.storageDir as string));
   try {
@@ -130,6 +133,13 @@ export async function runReadiness(rt: Runtime, env: Record<string, string | und
     add({ name: "reader_uses_dedicated_read_only_grant", status: rt.ops?.readerSharesWriterGrant ? "warn" : "pass", code: "SHARED_GRANT" });
   } else {
     add({ name: "crm_org_and_reader_schema", status: "skip", code: "EXPLICIT_READER" });
+  }
+  // E-mail delivery is OFF unless explicitly configured. This check only inspects configuration (no network, nothing is sent).
+  const mode = (env["SIX2FIT_EMAIL_DELIVERY_MODE"] ?? "").trim().toLowerCase();
+  if (mode === "" || mode === "disabled") add({ name: "email_delivery", status: "skip", code: "EMAIL_DISABLED" });
+  else {
+    const missing = ["SIX2FIT_EMAIL_FROM", "SIX2FIT_EMAIL_FROM_NAME", "SIX2FIT_EMAIL_ALLOWED_RECIPIENTS", "SIX2FIT_ZOHO_MAILER_REFRESH_TOKEN", "SIX2FIT_FORM_BASE_URL"].filter((k) => (env[k] ?? "").trim() === "");
+    add({ name: "email_delivery", status: mode === "crm-send-mail" && missing.length === 0 ? "pass" : "fail", ...(missing.length ? { code: "MISSING", detail: missing.join(",") } : {}) });
   }
   const required = ["SIX2FIT_ONBOARDING_TOKEN_SECRET", "SIX2FIT_STAGING_STORAGE_DIR", "SIX2FIT_EXPECTED_ORG_ID", "SIX2FIT_PRODUCT_SCOPE_MAP", "SIX2FIT_OPS_CALLER_SECRET"];
   const missing = required.filter((k) => (env[k] ?? "").trim() === "");

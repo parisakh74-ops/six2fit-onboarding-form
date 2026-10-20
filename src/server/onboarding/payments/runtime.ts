@@ -5,18 +5,25 @@ import { productMapFromEnv } from "../links/product-map";
 import { CrmDealResolver, type DealOrderLookup } from "./deal-resolver";
 import { FactStore } from "./facts";
 import { handlePaymentWebhook } from "./http";
+import { buildEmailDelivery } from "./email-runtime";
 import { createPaymentOnboarding } from "./orchestrator";
 import type { DealResolver, LinkDelivery, OrderVerifier } from "./types";
 import { WooCommerceOrderVerifier } from "./verifier";
 
 export type PaymentRuntimeExtras = { delivery?: LinkDelivery; verifier?: OrderVerifier; deals?: DealResolver; now?: () => number; fetch?: ConstructorParameters<typeof WooCommerceOrderVerifier>[0]["fetch"] };
 
+let memoDelivery: LinkDelivery | null | undefined;
+export const resetPaymentRuntimeCache = (): void => {
+  memoDelivery = undefined;
+};
+
 const unavailable = (code: string): Response => Response.json({ error_code: code, message: code }, { status: 503, headers: { "Cache-Control": "no-store" } });
 
 /**
- * Entry point of the payment webhook. FAILS CLOSED (503) until every collaborator exists. In particular there is NO default
- * delivery channel: how the first invitation reaches the customer (e-mail / WhatsApp provider) is an open product decision
- * (D-PAY-7), so this route cannot send anything until a `LinkDelivery` is supplied. Nothing is sent by default.
+ * Entry point of the payment webhook. FAILS CLOSED (503) until every collaborator exists. E-mail is the approved channel
+ * (ONB-DELIVERY-01) but the PROVIDER is not approved: delivery is built only when `SIX2FIT_EMAIL_DELIVERY_MODE=crm-send-mail`
+ * and fully configured (see `email-runtime.ts`: sandbox allowlist of recipients, separate send-mail grant). Otherwise this
+ * route cannot send anything. Nothing is sent by default.
  *
  *   SIX2FIT_WOO_WEBHOOK_SECRET (>= 16 chars), SIX2FIT_WOO_BASE_URL (https shop, the Production order source is six2fit.com),
  *   SIX2FIT_WOO_CONSUMER_KEY / _CONSUMER_SECRET (READ-ONLY key), SIX2FIT_PAYMENT_GATEWAYS (optional comma list of gateway ids),
@@ -25,7 +32,10 @@ const unavailable = (code: string): Response => Response.json({ error_code: code
 export async function handlePaymentWebhookFromEnv(request: Request, extras: PaymentRuntimeExtras = {}, env: Record<string, string | undefined> = process.env): Promise<Response> {
   const get = (k: string) => (env[k] ?? "").trim();
   try {
-    if (!extras.delivery) return unavailable("PAYMENT_DELIVERY_NOT_CONFIGURED");
+    // No default channel: e-mail sending exists but is OFF unless SIX2FIT_EMAIL_DELIVERY_MODE is set and fully configured.
+    memoDelivery ??= buildEmailDelivery(env);
+    const delivery = extras.delivery ?? memoDelivery;
+    if (!delivery) return unavailable("PAYMENT_DELIVERY_NOT_CONFIGURED");
     const webhookSecret = get("SIX2FIT_WOO_WEBHOOK_SECRET");
     if (webhookSecret.length < 16) return unavailable("PAYMENT_NOT_CONFIGURED");
     const storageDir = get("SIX2FIT_STAGING_STORAGE_DIR");
@@ -45,7 +55,7 @@ export async function handlePaymentWebhookFromEnv(request: Request, extras: Paym
       facts,
       verifier,
       deals,
-      delivery: extras.delivery,
+      delivery,
       registry: new FileIssuedLinkStore(join(storageDir, "issued-links")),
       linkSecret: get("SIX2FIT_ONBOARDING_TOKEN_SECRET"),
       onboardingBaseUrl: new URL(get("SIX2FIT_FORM_BASE_URL")),

@@ -60,13 +60,16 @@ describe("T05 CRM reader", () => {
   it("missing records are null (204/400/404), malformed ids are null without a request, ambiguity and bad shapes are unavailable", async () => {
     const { reader, calls } = crm([
       (u) => (u.pathname === `/crm/v8/Deals/${DEAL}` ? J(204, null) : null),
-      (u) => (u.pathname === "/crm/v8/Deals/6223361000127220009" ? J(400, { code: "INVALID_DATA" }) : null),
+      (u) => (u.pathname === "/crm/v8/Deals/6223361000127220009" ? J(400, { code: "INVALID_DATA", details: { api_name: "id" } }) : null),
+      (u) => (u.pathname === "/crm/v8/Deals/6223361000127220012" ? J(400, { code: "INVALID_DATA", details: { api_name: "fields" } }) : null),
       (u) => (u.pathname === "/crm/v8/Deals/6223361000127220010" ? J(200, { data: [{ id: "x" }, { id: "y" }] }) : null),
       (u) => (u.pathname === "/crm/v8/Deals/6223361000127220011" ? J(200, { nope: true }) : null),
     ]);
     expect(await reader.getDeal(DEAL)).toBeNull();
     expect(await reader.getDeal("6223361000127220009")).toBeNull();
     expect(await reader.getDeal("not-an-id")).toBeNull();
+    // a configuration defect (unknown selected field) is NOT reported as a missing Deal
+    await expect(reader.getDeal("6223361000127220012")).rejects.toMatchObject({ code: "UNAVAILABLE" });
     await expect(reader.getDeal("6223361000127220010")).rejects.toMatchObject({ code: "UNAVAILABLE" });
     await expect(reader.getDeal("6223361000127220011")).rejects.toMatchObject({ code: "UNAVAILABLE" });
     expect(calls.some((c) => c.path.includes("not-an-id"))).toBe(false);
@@ -132,5 +135,23 @@ describe("T05 CRM reader", () => {
     const dedicated = createCrmReader({ ...ENV, SIX2FIT_ZOHO_READER_CLIENT_ID: "rc", SIX2FIT_ZOHO_READER_CLIENT_SECRET: "rs", SIX2FIT_ZOHO_READER_REFRESH_TOKEN: "rr" }, { fetch: (async () => new Response()) as never });
     expect(dedicated.sharedGrant).toBe(false);
     expect(dedicated.config.refreshToken).toBe("rr");
+  });
+
+  it("addresses the Requests module by its configured API name (a renamed custom module keeps e.g. `CustomModule3`)", async () => {
+    const zoho = new MockZoho();
+    const seen: string[] = [];
+    const fetch = (async (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => {
+      const u = new URL(url);
+      if (u.pathname === "/crm/v8/settings/modules") return J(200, { modules: [{ api_name: "CustomModule3", id: "6223361000127040089" }] });
+      if (u.pathname.startsWith("/crm/v8/CustomModule3/search")) { seen.push(u.pathname); return J(204, null); }
+      return zoho.fetch(url, init as never);
+    }) as never;
+    const { reader } = createCrmReader({ ...ENV, SIX2FIT_ONBOARDING_REQUESTS_MODULE: "CustomModule3" }, { fetch, now: () => Date.now(), sleep: async () => undefined });
+    expect(await reader.hasPriorRequests(CONTACT)).toBe(false);
+    expect(seen).toEqual(["/crm/v8/CustomModule3/search"]);
+    // the default name does NOT verify against a module list that only has the original API name (fail closed)
+    const wrong = createCrmReader(ENV, { fetch, now: () => Date.now(), sleep: async () => undefined }).reader;
+    await expect(wrong.hasPriorRequests(CONTACT)).rejects.toMatchObject({ code: "NOT_CONFIGURED" });
+    expect(() => createCrmReader({ ...ENV, SIX2FIT_ONBOARDING_REQUESTS_MODULE: "../x" }, { fetch })).toThrowError(expect.objectContaining({ kind: "NOT_CONFIGURED" }));
   });
 });

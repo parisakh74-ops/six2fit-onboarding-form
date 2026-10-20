@@ -34,6 +34,8 @@ export class ZohoCrmReader implements CrmDealReader {
   constructor(
     private readonly client: ZohoClient,
     private readonly orgZgid: string,
+    /** API name of the module displayed as "Requests" (a renamed custom module keeps its original API name, e.g. `CustomModule3`). */
+    private readonly requestsModule = "Requests",
   ) {}
 
   private async get(path: string, query?: Record<string, string>): Promise<ZohoResponse> {
@@ -61,13 +63,15 @@ export class ZohoCrmReader implements CrmDealReader {
     const s = res.status;
     if (s === 401 || s === 403) throw new CrmReadError("FORBIDDEN");
     if (s === 204 || (s >= 200 && s < 300)) return;
-    // 400/404 on a record read mean "no such record" for Zoho (INVALID_DATA / not found); anything else is unavailable.
-    if (s === 400 || s === 404) return;
+    // 404, or 400 INVALID_DATA about the record `id` itself, mean "no such record". Any other 400 (e.g. an unknown field in
+    // `fields`, a wrong module) is a configuration defect and must NOT look like a missing Deal: it is "unavailable" (fail closed).
+    if (s === 404) return;
+    if (s === 400 && isObj(res.json) && res.json["code"] === "INVALID_DATA" && isObj(res.json["details"]) && (res.json["details"] as Record<string, unknown>)["api_name"] === "id") return;
     throw new CrmReadError("UNAVAILABLE");
   }
 
   private list(res: ZohoResponse): Array<Record<string, unknown>> {
-    if (res.status === 204 || res.status === 400 || res.status === 404) return [];
+    if (res.status === 204 || res.status === 404 || (res.status === 400 && isObj(res.json) && res.json["code"] === "INVALID_DATA" && isObj(res.json["details"]) && (res.json["details"] as Record<string, unknown>)["api_name"] === "id")) return [];
     const j = res.json;
     if (j === INVALID || !isObj(j) || !Array.isArray(j["data"])) throw new CrmReadError("UNAVAILABLE");
     return (j["data"] as unknown[]).filter(isObj);
@@ -105,12 +109,12 @@ export class ZohoCrmReader implements CrmDealReader {
 
   async hasPriorRequests(contactId: string): Promise<boolean> {
     if (!ID.test(contactId)) throw new CrmReadError("UNAVAILABLE");
-    return this.list(await this.get("/Requests/search", { criteria: `(Contact:equals:${contactId})`, fields: "id", per_page: "1" })).length > 0;
+    return this.list(await this.get(`/${this.requestsModule}/search`, { criteria: `(Contact:equals:${contactId})`, fields: "id", per_page: "1" })).length > 0;
   }
 
   async dealHasCompletedRequest(dealId: string): Promise<boolean> {
     if (!ID.test(dealId)) throw new CrmReadError("UNAVAILABLE");
-    const rows = this.list(await this.get("/Requests/search", { criteria: `(Deal:equals:${dealId})`, fields: "id,Form_Completion_Date", per_page: "200" }));
+    const rows = this.list(await this.get(`/${this.requestsModule}/search`, { criteria: `(Deal:equals:${dealId})`, fields: "id,Form_Completion_Date", per_page: "200" }));
     return rows.some((r) => str(r["Form_Completion_Date"]) !== null);
   }
 
@@ -153,7 +157,7 @@ export class ZohoCrmReader implements CrmDealReader {
   /** Readiness helper: every field this reader selects must exist in the Sandbox schema. Fails closed, names missing fields only. */
   async verifySchema(includeConsultation: boolean): Promise<{ ok: boolean; missing: string[] }> {
     const missing: string[] = [];
-    const targets: Array<[string, readonly string[]]> = Object.entries(READER_SCHEMA).map(([m, f]) => [m, f]);
+    const targets: Array<[string, readonly string[]]> = Object.entries(READER_SCHEMA).map(([m, f]) => [m === "Requests" ? this.requestsModule : m, f]);
     if (includeConsultation) targets.push([CONSULTATION_MODULE, CONSULTATION_SCHEMA]);
     for (const [module, fields] of targets) {
       const res = await this.get("/settings/fields", { module });
@@ -184,5 +188,5 @@ export function createCrmReader(env: Record<string, string | undefined>, overrid
   const fetchImpl = overrides.fetch ?? (globalThis.fetch as unknown as ClientDeps["fetch"] | undefined);
   if (!fetchImpl) throw new StoreError("NOT_CONFIGURED", "crm reader: fetch unavailable", "CRM_NOT_CONFIGURED");
   const deps: ClientDeps = { fetch: fetchImpl, now: overrides.now ?? (() => Date.now()), sleep: overrides.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))) };
-  return { reader: new ZohoCrmReader(new ZohoClient(config, deps), config.orgZgid), config, sharedGrant: !dedicated };
+  return { reader: new ZohoCrmReader(new ZohoClient(config, deps), config.orgZgid, config.moduleApiName), config, sharedGrant: !dedicated };
 }
