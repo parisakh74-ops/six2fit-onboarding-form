@@ -172,7 +172,7 @@ export const STEPS: Step[] = [
           <Choice cols={2} value={c.a["ON-17"]} onChange={(v) => c.set("ON-17", v)} options={o("ON-17")} />
         </Q>
         <Q id="ON-18" label="در چهار هفتهٔ اخیر، سطح استرس‌تان را از ۰ تا ۱۰ چقدر ارزیابی می‌کنید؟" required error={c.e["ON-18"]}>
-          <Scale value={c.a["ON-18"]} onChange={(v) => c.set("ON-18", v)} lo="بدون استرس" hi="بسیار زیاد" />
+          <Scale value={c.a["ON-18"]} onChange={(v) => c.set("ON-18", v)} lo="بدون استرس" hi="بسیار زیاد" labelledBy="l-ON-18" />
         </Q>
         <Q id="ON-19" label="آیا دخانیات مصرف می‌کنید؟">
           <Choice cols={2} value={c.a["ON-19"]} onChange={(v) => c.set("ON-19", v)} options={o("ON-19")} />
@@ -359,10 +359,12 @@ export const STEPS: Step[] = [
             {c.on("TR-08.location") && (
               <Sub>
                 {sub("TR-08.location", "محل درد")}
-                <SubLabel error={c.e["TR-08.severity"]}>
-                  <span className="text-sm font-medium">شدت درد (۰ تا ۱۰)</span>
-                  <Scale value={c.a["TR-08.severity"]} onChange={(v) => c.set("TR-08.severity", v)} lo="بدون درد" hi="شدیدترین" />
-                </SubLabel>
+                {/* Not a <label>: a wrapping label would let a click on the caption, the end labels or the hint activate the slider and record 5. */}
+                <div className="space-y-1.5">
+                  <span id="l-TR-08.severity" className="text-sm font-medium">شدت درد (۰ تا ۱۰)</span>
+                  <Scale value={c.a["TR-08.severity"]} onChange={(v) => c.set("TR-08.severity", v)} lo="بدون درد" hi="شدیدترین" labelledBy="l-TR-08.severity" />
+                  {c.e["TR-08.severity"] && <span role="alert" className="block text-sm text-destructive">{c.e["TR-08.severity"]}</span>}
+                </div>
                 {sub("TR-08.onset", "از چه زمانی شروع شده است؟")}
                 {sub("TR-08.effect", "فعالیت چه اثری روی درد دارد؟", true)}
               </Sub>

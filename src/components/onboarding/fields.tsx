@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import * as React from "react";
 import { COUNTRY_LIST, byIso, flagOf, searchCountries, searchDial, digitsEn, type Country } from "@/lib/onboarding/countries";
 import { Check } from "lucide-react";
@@ -111,17 +111,28 @@ export function Select({ value, onChange, options, placeholder }: { value?: stri
   );
 }
 
-export function Scale({ value, onChange, min = 0, max = 10, lo, hi }: { value?: number; onChange: (v: number) => void; min?: number | undefined; max?: number | undefined; lo?: string | undefined; hi?: string  | undefined}) {
+/**
+ * 0–10 scale. Do NOT render it inside a <label>: clicking any text in a wrapping label activates the range input and
+ * `onClick` would silently record the resting value. The question text lives outside; pass its element id as `labelledBy`
+ * so the slider still has an accessible name.
+ */
+export function Scale({ value, onChange, min = 0, max = 10, lo, hi, labelledBy }: { value?: number; onChange: (v: number) => void; min?: number | undefined; max?: number | undefined; lo?: string | undefined; hi?: string  | undefined; labelledBy?: string | undefined}) {
   const touched = typeof value === "number";
+  const hintId = useId();
   return (
     <div>
       <div className="mb-3 flex items-baseline justify-center gap-1">
         <span className={cn("text-4xl font-bold tabular-nums", touched ? "text-brand" : "text-muted-foreground/40")}>{typeof value === "number" ? value.toLocaleString("fa") : "–"}</span>
         <span className="text-sm text-muted-foreground">/ {max.toLocaleString("fa")}</span>
       </div>
+      {/* Until the person acts there is no answer: the thumb rests at the middle only as a starting position, so it is dimmed,
+          announced as "not selected" and explained below. Nothing is stored until the control is moved or clicked. */}
       <input type="range" dir="rtl" className="range" min={min} max={max} step={1} value={touched ? value : Math.round((min + max) / 2)}
+        data-untouched={touched ? undefined : "true"} aria-valuetext={touched ? undefined : "انتخاب نشده"}
+        aria-labelledby={labelledBy} aria-describedby={touched ? undefined : hintId}
         onChange={(e) => onChange(Number(e.target.value))} onClick={(e) => onChange(Number((e.target as HTMLInputElement).value))} />
       <div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{lo ?? min.toLocaleString("fa")}</span><span>{hi ?? max.toLocaleString("fa")}</span></div>
+      {!touched && <p id={hintId} className="mt-2 text-center text-xs text-muted-foreground">برای ثبت پاسخ، اسلایدر را حرکت دهید یا روی نوار بزنید.</p>}
     </div>
   );
 }
@@ -252,7 +263,7 @@ export function CountrySelect({ value, onChange }: { value?: string; onChange: (
 /** Dial-code picker; the selected country (ISO) is kept so shared codes like +1 stay unambiguous. */
 export function DialSelect({ iso, dial, onChange }: { iso?: string; dial?: string; onChange: (c: Country) => void }) {
   const cur = byIso(iso) ?? COUNTRY_LIST.find((c) => `+${c.dial}` === dial);
-  return <Picker compact value={cur} onSelect={onChange} search={searchDial} placeholder="Canada +1" render={(c) => <span dir="ltr">{flagOf(c.iso)} +{c.dial}</span>} />;
+  return <Picker compact value={cur} onSelect={onChange} search={searchDial} placeholder="کد کشور" render={(c) => <span dir="ltr">{flagOf(c.iso)} +{c.dial}</span>} />;
 }
 
 export function ImageCards({ value, onChange, options, images, exclusive = [] }: { value?: string[]; onChange: (v: string[]) => void; options: Opt[]; images: Record<string, string>; exclusive?: string[] }) {

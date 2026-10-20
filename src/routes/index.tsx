@@ -183,11 +183,11 @@ function Onboarding() {
   const cur = steps[step]!;
 
   return (
-    <div dir="rtl" lang="fa" className="min-h-screen bg-surface px-4 py-6 sm:py-10">
+    <div dir="rtl" lang="fa" className="min-h-screen bg-surface px-4 pb-10 sm:py-10">
       <div className="mx-auto w-full max-w-[760px]">
-        <header ref={top} className="mb-5 flex items-center justify-between gap-3">
+        <header ref={top} className="mb-6 flex h-16 items-center justify-between gap-3 border-b border-border sm:rounded-t-2xl sm:border sm:bg-card sm:px-6">
           <Logo />
-          <span className="text-[12px] text-muted-foreground">تکمیل اطلاعات · {SCOPE_LABEL[scope]}</span>
+          <span className="text-[14px] font-medium text-foreground">تکمیل اطلاعات · {SCOPE_LABEL[scope]}</span>
         </header>
         <main>
           {bootstrapState === "loading" && <Card><Notice>در حال بررسی لینک امن فرم…</Notice></Card>}
@@ -207,8 +207,8 @@ function Onboarding() {
                 </div>
               )}
               <div className="mb-7">
-                <h1 className="text-xl font-bold leading-9 sm:text-2xl">{isReview ? "مرور نهایی" : cur.title}</h1>
-                <p className="mt-2 text-[15px] leading-8 text-muted-foreground">{isReview ? "پاسخ‌هایتان را بررسی کنید. برای اصلاح، روی «ویرایش» هر بخش بزنید." : cur.desc}</p>
+                <h1 className="text-[24px] font-medium leading-8">{isReview ? "مرور نهایی" : cur.title}</h1>
+                <p className="mt-3 text-[16px] leading-7 text-muted-foreground">{isReview ? "پاسخ‌هایتان را بررسی کنید. برای اصلاح، روی «ویرایش» هر بخش بزنید." : cur.desc}</p>
               </div>
               <div key={step} className="space-y-7 animate-in fade-in duration-200">
                 {isReview ? <Review steps={steps} a={a} prefill={bootstrap?.prefill ?? {}} on={on} ver={ver} edit={go} /> : cur.render(ctx)}
