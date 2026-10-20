@@ -1,4 +1,4 @@
-import { WdHttpError, type WdItem, type WorkDriveApi } from "./api";
+import { WdHttpError, WdTokenError, type WdItem, type WorkDriveApi } from "./api";
 
 type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal }) => Promise<{ status: number; arrayBuffer(): Promise<ArrayBuffer>; json(): Promise<unknown> }>;
 
@@ -6,6 +6,8 @@ export type HttpWorkDriveDeps = {
   fetch: FetchLike;
   /** Returns a short-lived access token. Supplied by the credential layer; never logged, never stored here. */
   accessToken: () => Promise<string>;
+  /** Drops a token WorkDrive refused (401) so the next call refreshes. Optional. */
+  invalidateToken?: (token: string) => void;
   /** API base, e.g. the US data-center WorkDrive API root. Pinned by configuration. */
   baseUrl: string;
   timeoutMs?: number;
@@ -22,23 +24,37 @@ export class HttpWorkDriveApi implements WorkDriveApi {
   constructor(private readonly deps: HttpWorkDriveDeps) {}
 
   private async send(method: string, path: string, opts: { body?: unknown; json?: boolean; headers?: Record<string, string> } = {}) {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), this.deps.timeoutMs ?? 20_000);
-    try {
-      const token = await this.deps.accessToken();
-      const res = await this.deps.fetch(`${this.deps.baseUrl}${path}`, {
-        method,
-        headers: { Authorization: `Zoho-oauthtoken ${token}`, Accept: "application/vnd.api+json", ...(opts.headers ?? {}) },
-        body: opts.body,
-        signal: ctl.signal,
-      });
-      if (res.status < 200 || res.status >= 300) throw new WdHttpError(res.status);
-      return res;
-    } catch (e) {
-      if (e instanceof WdHttpError) throw e;
-      throw new WdHttpError(0);
-    } finally {
-      clearTimeout(timer);
+    // One transparent retry after a 401 (an expired or revoked access token): the first request was refused, never applied.
+    for (let attempt = 1; ; attempt += 1) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), this.deps.timeoutMs ?? 20_000);
+      let token: string;
+      try {
+        token = await this.deps.accessToken();
+      } catch (e) {
+        clearTimeout(timer);
+        // No request left this process: definite, never "ambiguous".
+        throw new WdTokenError((e as { code?: unknown } | null)?.code === "WD_AUTH_FAILED" ? 401 : 503);
+      }
+      try {
+        const res = await this.deps.fetch(`${this.deps.baseUrl}${path}`, {
+          method,
+          headers: { Authorization: `Zoho-oauthtoken ${token}`, Accept: "application/vnd.api+json", ...(opts.headers ?? {}) },
+          body: opts.body,
+          signal: ctl.signal,
+        });
+        if (res.status === 401 && attempt === 1 && this.deps.invalidateToken) {
+          this.deps.invalidateToken(token);
+          continue;
+        }
+        if (res.status < 200 || res.status >= 300) throw new WdHttpError(res.status);
+        return res;
+      } catch (e) {
+        if (e instanceof WdHttpError) throw e;
+        throw new WdHttpError(0);
+      } finally {
+        clearTimeout(timer);
+      }
     }
   }
 

@@ -47,6 +47,12 @@ export interface OnboardingStore {
 
 /** The CRM side used by the ledger: one POST per attempt, lookups by `uniqueformkey` (positive hits only are proof). */
 export interface CrmWriter {
+  /**
+   * Optional pre-CRM step (WorkDrive staging). The ledger runs it in phase "staging", BEFORE it records "sending", so a
+   * worker that dies here provably never started a CRM POST and its claim can be taken over safely. It must be idempotent,
+   * must not touch the CRM and returns the record `create` will send.
+   */
+  prepare?(record: SubmissionRecord, extras?: SubmissionExtras): Promise<SubmissionRecord>;
   create(record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult>;
   lookupId(uniqueFormKey: string): Promise<string | null>;
   readRecord(recordId: string, uniqueFormKey: string): Promise<StoredRef>;

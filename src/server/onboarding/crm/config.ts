@@ -1,4 +1,5 @@
 import { StoreError } from "../errors";
+import { dcOfAccountsDomain, dcOfSandboxApiDomain } from "../zoho-dc";
 
 /**
  * Configuration contract of the Zoho CRM Sandbox adapter for the Onboarding `Requests` module (server-side only).
@@ -64,9 +65,6 @@ export const PRODUCTION_ID_PREFIX = "6067417000";
 export const REQUESTS_MODULE = "Requests";
 export const RAW_FIELD_DEFAULT_CAPACITY = 31_000;
 
-const DCS = "(com|eu|in|com\\.au|jp|com\\.cn|ca|sa)";
-const API_DOMAIN = new RegExp(`^https://sandbox\\.zohoapis\\.${DCS}$`);
-const ACCOUNTS_DOMAIN = new RegExp(`^https://accounts\\.zoho\\.${DCS}$`);
 
 const notConfigured = (what: string): never => {
   throw new StoreError("NOT_CONFIGURED", `requests store: ${what}`, "CRM_NOT_CONFIGURED");
@@ -98,9 +96,13 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
   const orgApiIdRaw = get("SIX2FIT_ZOHO_ORG_API_ID");
   if (orgApiIdRaw !== "" && !/^\d{6,25}$/.test(orgApiIdRaw)) notConfigured("organisation api id malformed");
   const apiDomain = get("SIX2FIT_ZOHO_API_DOMAIN").replace(/\/+$/, "");
-  if (!API_DOMAIN.test(apiDomain)) notConfigured("api domain must be a Zoho sandbox domain");
+  const apiDc = dcOfSandboxApiDomain(apiDomain);
+  if (!apiDc) notConfigured("api domain must be a Zoho sandbox domain");
   const accountsDomain = get("SIX2FIT_ZOHO_ACCOUNTS_DOMAIN").replace(/\/+$/, "");
-  if (!ACCOUNTS_DOMAIN.test(accountsDomain)) notConfigured("accounts domain missing or invalid");
+  const accountsDc = dcOfAccountsDomain(accountsDomain);
+  if (!accountsDc) notConfigured("accounts domain missing or invalid");
+  // A token request must never go to a different data centre than the API it authorises (credentials would leave the DC).
+  if (apiDc !== accountsDc) notConfigured("accounts and api domains belong to different data centres");
   const moduleIdPrefix = get("SIX2FIT_ZOHO_MODULE_ID_PREFIX");
   if (!/^\d{6,20}$/.test(moduleIdPrefix) || moduleIdPrefix.startsWith(PRODUCTION_ID_PREFIX)) {
     notConfigured("expected sandbox id prefix missing or refers to Production");

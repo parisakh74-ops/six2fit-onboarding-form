@@ -51,8 +51,11 @@ export type LedgerEntry = {
   /** CRM unique key (`uniqueformkey`) used for lookups; never contains answers. */
   uk: string;
   state: LedgerState;
-  /** in_progress only: "claimed" = no POST started yet; "sending" = a POST may be in flight; "reconciling" = lookup in progress. */
-  phase?: "claimed" | "sending" | "reconciling";
+  /**
+   * in_progress only: "claimed" = nothing started; "staging" = files are being put into the document store (WorkDrive), no CRM
+   * POST can have started; "sending" = a CRM POST may be in flight; "reconciling" = lookup in progress.
+   */
+  phase?: "claimed" | "staging" | "sending" | "reconciling";
   /** Set when an operator settled the entry (audit trail). */
   manual?: boolean;
   note?: string;
@@ -234,8 +237,9 @@ export class LedgerOnboardingStore implements OnboardingStore {
         await this.waitForChange(id, cur.gen);
         continue;
       }
-      if (cur.state === "in_progress" && cur.phase === "claimed") {
-        // The writer died before it ever recorded `sending`: no POST was started, so a fresh attempt is safe.
+      if (cur.state === "in_progress" && (cur.phase === "claimed" || cur.phase === "staging")) {
+        // The writer died before it ever recorded `sending` (also while staging files in WorkDrive, which is idempotent and
+        // never touches the CRM): no POST was started, so a fresh attempt is safe.
         const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, uk, state: "in_progress", phase: "claimed", attempts: cur.attempts + 1, started: now(), updated: now() };
         if (await this.ledger.claim(mine)) {
           this.log("ledger.takeover_unsent", { attempts: mine.attempts });
@@ -303,6 +307,19 @@ export class LedgerOnboardingStore implements OnboardingStore {
   /** The single place where a POST can happen: the caller owns the newest generation. */
   private async write(mine: LedgerEntry, record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult> {
     let result: CreateResult;
+    let toSend = record;
+    if (this.inner.prepare) {
+      // Phase "staging": WorkDrive writes only. A failure here never involves the CRM, so the claim can always be released
+      // (an integrity error excepted): the retry resumes from what WorkDrive already holds.
+      try {
+        await this.ledger.update({ ...mine, phase: "staging", updated: this.opts.now() });
+        toSend = await this.inner.prepare(record, extras);
+      } catch (e) {
+        const store = e instanceof StoreError ? e : null;
+        await this.settle({ ...mine, state: store?.kind === "CORRUPT" ? "integrity" : "released", updated: this.opts.now(), ...(store?.code ? { code: store.code } : {}) });
+        throw e;
+      }
+    }
     try {
       // Durable "a POST may start now" marker BEFORE the request: if this process dies from here on, the outcome is unknown.
       await this.ledger.update({ ...mine, phase: "sending", updated: this.opts.now() });
@@ -311,7 +328,7 @@ export class LedgerOnboardingStore implements OnboardingStore {
       throw e;
     }
     try {
-      result = await this.inner.create(record, extras);
+      result = await this.inner.create(toSend, extras);
     } catch (e) {
       const store = e instanceof StoreError ? e : null;
       const state: LedgerState = store?.kind === "CORRUPT" ? "integrity" : store?.notWritten === true ? "released" : "unknown";
@@ -347,7 +364,7 @@ export type ManualDecision =
 export async function resolveManually(ledger: IdempotencyLedger, id: string, d: ManualDecision, now: number, leaseMs = 150_000): Promise<LedgerEntry> {
   const cur = await ledger.current(id);
   if (!cur) throw new StoreError("REJECTED", "no ledger entry", "LEDGER_NOT_FOUND");
-  const open = cur.state === "unknown" || cur.state === "needs_review" || (cur.state === "in_progress" && cur.phase !== "claimed" && now - cur.updated >= leaseMs);
+  const open = cur.state === "unknown" || cur.state === "needs_review" || (cur.state === "in_progress" && cur.phase !== "claimed" && cur.phase !== "staging" && now - cur.updated >= leaseMs);
   if (!open) throw new StoreError("REJECTED", `entry is ${cur.state}; nothing to resolve`, "LEDGER_NOT_RESOLVABLE");
   if (d.note.trim().length < 8) throw new StoreError("REJECTED", "a note describing the evidence is required", "LEDGER_NOTE_REQUIRED");
   if (d.decision === "created" && !/^\d{6,25}$/.test(d.crmRecordId)) throw new StoreError("REJECTED", "invalid CRM record id", "INVALID_RECORD_ID");

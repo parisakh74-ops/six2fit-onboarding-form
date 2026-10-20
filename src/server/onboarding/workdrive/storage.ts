@@ -16,6 +16,13 @@ export type WorkDriveStorageConfig = {
   rootFolderId: string;
   /** Expected title of that folder, verified before the first write (guards against a mistyped or re-pointed id). */
   rootFolderName: string;
+  /**
+   * Budget for staging ONE submission. Checked between WorkDrive operations: when exceeded the attempt stops with
+   * `WD_DEADLINE` (nothing is lost: the claim is released and the retry resumes from what is already in WorkDrive).
+   * Must stay below the ledger lease (see `crm/runtime.ts`). Unset = no deadline.
+   */
+  deadlineMs?: number;
+  now?: () => number;
 };
 
 export type StagedSubmission = { folderId: string; documentRef: string; files: StoredFile[] };
@@ -204,6 +211,11 @@ export class WorkDriveSubmissionStorage {
 
   private async stageInner(record: SubmissionRecord, fileBytes: Record<string, Uint8Array>): Promise<StagedSubmission> {
     if (!KEY_PATTERN.test(record.unique_form_key)) throw stageError("REJECTED", "WD_INVALID_KEY", "invalid submission key");
+    const clock = this.config.now ?? (() => Date.now());
+    const startedAt = clock();
+    const checkpoint = () => {
+      if (this.config.deadlineMs !== undefined && clock() - startedAt > this.config.deadlineMs) throw stageError("UNAVAILABLE", "WD_DEADLINE", "staging budget exceeded");
+    };
     await this.verifyRoot();
     const folderId = await this.findOrCreateFolder(record.unique_form_key);
     await this.refuseConflictingDocument(folderId, record);
@@ -214,11 +226,13 @@ export class WorkDriveSubmissionStorage {
       if (!bytes || !HEX64.test(f.sha256) || sha256Hex(bytes) !== f.sha256 || bytes.length !== f.size) {
         throw stageError("REJECTED", "WD_INVALID_FILE", "file bytes do not match the submission record");
       }
+      checkpoint();
       const name = `${f.key.replace(/[^A-Za-z0-9_.-]/g, "_")}-${f.sha256.slice(0, 16)}.${extFor(f.type)}`;
       const item = await this.putVerified(folderId, name, bytes, f.sha256);
       files.push({ ...f, ref: `wd:${item.id}` });
     }
 
+    checkpoint();
     const documentRef = await this.putDocument(folderId, record, files);
     this.log("workdrive.staged", { files: files.length });
     return { folderId, documentRef, files };
@@ -348,9 +362,20 @@ export class WorkDriveStagingWriter implements CrmWriter {
     private readonly storage: WorkDriveSubmissionStorage,
   ) {}
 
-  async create(record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult> {
+  /**
+   * Step 1 (ledger phase "staging"): put the files and the canonical document into WorkDrive and return the record that
+   * carries the file refs and `document_ref`. Idempotent and resumable; it never touches the CRM. A death of the worker in
+   * this step is therefore safe to take over (no CRM POST can have started).
+   */
+  async prepare(record: SubmissionRecord, extras?: SubmissionExtras): Promise<SubmissionRecord> {
     const staged = await this.storage.stage(record, extras?.fileBytes ?? {});
-    return this.inner.create({ ...record, files: staged.files, document_ref: staged.documentRef }, extras);
+    return { ...record, files: staged.files, document_ref: staged.documentRef };
+  }
+
+  /** Step 2 (ledger phase "sending"): the single CRM create. Stages first only when nobody called `prepare` (legacy direct use). */
+  async create(record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult> {
+    const ready = record.document_ref ? record : await this.prepare(record, extras);
+    return this.inner.create(ready, extras);
   }
 
   lookupId(uniqueFormKey: string): Promise<string | null> {

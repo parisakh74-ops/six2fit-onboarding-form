@@ -3,7 +3,8 @@ import { ConsultHandoffDirectory, FileOnboardingStore, LocalFileSink } from "./f
 import { StoreError } from "./errors";
 import type { OnboardingStore } from "./ports";
 import { createOnboardingService, type OnboardingService, type Result } from "./service";
-import { createRequestsStore } from "./crm/factory";
+import { createCrmRuntime, type CrmRuntimeOverrides } from "./crm/runtime";
+import type { FileSink } from "./ports";
 import { FactStore, revocationKey } from "./payments/facts";
 import { CompositeSubjectDirectory, DealSubjectDirectory } from "./links/deal-directory";
 import { productMapFromEnv } from "./links/product-map";
@@ -27,7 +28,7 @@ const req = (env: Record<string, string | undefined>, name: string): string => {
  * `dealReader` is the READ-ONLY CRM reader for Deal-bound links. Without it (the real Sandbox reader does not exist yet)
  * Deal links fail closed exactly as before; Consultation links are unaffected either way.
  */
-export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader } = {}): Runtime {
+export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader } = {}, overrides: CrmRuntimeOverrides = {}): Runtime {
   if (req(env, "SIX2FIT_STAGING_MODE") !== "true") throw new StoreError("NOT_CONFIGURED", "staging mode disabled", "CONFIG");
   const kind0 = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
   // O1: Consultation hand-off tokens are refused unless explicitly enabled for development/staging, and never with the CRM store.
@@ -39,9 +40,15 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const storageDir = req(env, "SIX2FIT_STAGING_STORAGE_DIR");
   const kind = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
   let store: OnboardingStore;
+  let sink: FileSink = new LocalFileSink(storageDir);
   if (kind === "file") store = new FileOnboardingStore(storageDir);
-  else if (kind === "crm") store = createRequestsStore(env, join(storageDir, "onboarding-ledger"));
-  else throw new StoreError("NOT_CONFIGURED", "unknown store", "CONFIG");
+  else if (kind === "crm") {
+    // Single composition point of CRM + WorkDrive persistence. In a WorkDrive mode the sink is the deferred one: uploads are
+    // staged in WorkDrive under the ledger claim and never written to the local disk.
+    const crm = createCrmRuntime(env, storageDir, sink, overrides);
+    store = crm.store;
+    sink = crm.sink;
+  } else throw new StoreError("NOT_CONFIGURED", "unknown store", "CONFIG");
   const payments = new FactStore(join(storageDir, "payments"));
   const service = createOnboardingService({
     store,
@@ -63,7 +70,7 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
           })
         : null,
     ),
-    sink: new LocalFileSink(storageDir),
+    sink,
     secret,
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });

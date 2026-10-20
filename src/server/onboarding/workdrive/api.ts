@@ -28,3 +28,18 @@ export class WdHttpError extends Error {
     return this.status === 0 || this.status >= 500;
   }
 }
+
+/**
+ * The access token could not be obtained, so the request was NEVER sent: a definite failure, never ambiguous.
+ * `status` 401 = the credential was refused (mapped to WD_UNAUTHENTICATED); 503 = the token endpoint was unreachable.
+ */
+export class WdTokenError extends WdHttpError {
+  constructor(status: 401 | 503) {
+    super(status, `workdrive token ${status}`);
+    this.name = "WdTokenError";
+  }
+
+  override get ambiguous(): boolean {
+    return false;
+  }
+}
