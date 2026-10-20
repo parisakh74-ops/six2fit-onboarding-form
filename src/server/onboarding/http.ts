@@ -9,6 +9,7 @@ import { FactStore, revocationKey } from "./payments/facts";
 import { CompositeSubjectDirectory, DealSubjectDirectory } from "./links/deal-directory";
 import { productMapFromEnv } from "./links/product-map";
 import type { CrmDealReader } from "./links/types";
+import { createCrmReader } from "./links/crm-reader";
 
 /** Largest accepted request body. The form allows up to 7 files of 20 MB; photos are optional, so the limit is generous but bounded. */
 export const DEFAULT_MAX_BODY_BYTES = 80 * 1024 * 1024;
@@ -25,7 +26,7 @@ const req = (env: Record<string, string | undefined>, name: string): string => {
 
 /**
  * Builds the service from server-only environment variables (never from the browser).
- * `dealReader` is the READ-ONLY CRM reader for Deal-bound links. Without it (the real Sandbox reader does not exist yet)
+ * `dealReader` is the READ-ONLY CRM reader for Deal-bound links. Without it the `crm` store builds the read-only Sandbox reader (links/crm-reader.ts); the `file` store has none and
  * Deal links fail closed exactly as before; Consultation links are unaffected either way.
  */
 export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader } = {}, overrides: CrmRuntimeOverrides = {}): Runtime {
@@ -49,6 +50,9 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
     store = crm.store;
     sink = crm.sink;
   } else throw new StoreError("NOT_CONFIGURED", "unknown store", "CONFIG");
+  // Deal links are verified against trusted CRM data. Without an explicit reader the CRM store builds the read-only Sandbox reader
+  // (one per process); the `file` store (development) keeps failing closed for Deal links exactly as before.
+  const dealReader = extras.dealReader ?? (kind === "crm" ? createCrmReader(env, overrides).reader : undefined);
   const payments = new FactStore(join(storageDir, "payments"));
   const service = createOnboardingService({
     store,
@@ -56,9 +60,9 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
     acceptConsultHandoff,
     directory: new CompositeSubjectDirectory(
       acceptConsultHandoff ? new ConsultHandoffDirectory(storageDir) : null,
-      extras.dealReader
+      dealReader
         ? new DealSubjectDirectory({
-            crm: extras.dealReader,
+            crm: dealReader,
             products: productMapFromEnv(env["SIX2FIT_PRODUCT_SCOPE_MAP"]),
             expectedOrgId: req(env, "SIX2FIT_EXPECTED_ORG_ID"),
             log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
@@ -83,9 +87,21 @@ const plain = (status: number, error_code: string): Response => Response.json({ 
 
 const isStagingHost = (request: Request): boolean => new URL(request.url).hostname.toLowerCase().includes("onboarding-staging");
 
+/**
+ * One runtime per process: the CRM and WorkDrive clients keep their OAuth tokens and environment verification, so a request
+ * does not refresh tokens or re-verify the organisation. A failed build is not cached (fixing the configuration and
+ * retrying works); a configuration change needs a process restart, as with any environment variable.
+ */
+let cachedRuntime: Runtime | null = null;
+export const resetRuntimeCache = (): void => {
+  cachedRuntime = null;
+};
+
 function getRuntime(deps: Deps): Runtime | Response {
   try {
-    return (deps.runtime ?? runtimeFromEnv)();
+    if (deps.runtime) return deps.runtime();
+    cachedRuntime ??= runtimeFromEnv();
+    return cachedRuntime;
   } catch (e) {
     console.error(JSON.stringify({ event: "onboarding.config_unavailable", kind: e instanceof StoreError ? e.kind : "CONFIG" }));
     return plain(503, "STAGING_UNAVAILABLE");
