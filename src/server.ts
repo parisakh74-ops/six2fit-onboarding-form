@@ -7,6 +7,8 @@ import { handleOnboardingBootstrap } from "./routes/api/onboarding/bootstrap";
 import { handleOnboardingSubmission } from "./routes/api/onboarding/submit";
 import { handleOnboardingLinkIssue } from "./routes/api/internal/onboarding-link";
 import { isIssueLinkRequest } from "./server/onboarding/links/http";
+import { processRuntime } from "./server/onboarding/http";
+import { handleOps, opsKindOf } from "./server/onboarding/ops/ops";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -66,6 +68,8 @@ export default {
       // CloudLinux Passenger may rewrite application subpaths before TanStack's
       // file router sees them. Dispatch the staging APIs at the server boundary.
       if (isIssueLinkRequest(request)) return await handleOnboardingLinkIssue(request);
+      const opsKind = opsKindOf(request);
+      if (opsKind) return await handleOps(request, opsKind, { runtime: processRuntime, env: process.env });
       if (isBootstrap) return await handleOnboardingBootstrap(request);
       if (isSubmission) return await handleOnboardingSubmission(request);
 

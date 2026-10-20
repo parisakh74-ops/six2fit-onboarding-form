@@ -200,6 +200,15 @@ export class WorkDriveSubmissionStorage {
     }
   }
 
+  /** Readiness: authenticates and proves the configured root is the approved folder (name check). Read-only, one call. */
+  async verifyRootFolder(): Promise<void> {
+    try {
+      await this.verifyRoot();
+    } catch (e) {
+      throw mapWd(e);
+    }
+  }
+
   private async verifyRoot(): Promise<void> {
     if (this.rootVerified) return;
     const root = await this.api.getItem(this.config.rootFolderId);

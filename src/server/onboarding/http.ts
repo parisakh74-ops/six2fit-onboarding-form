@@ -3,19 +3,24 @@ import { ConsultHandoffDirectory, FileOnboardingStore, LocalFileSink } from "./f
 import { StoreError } from "./errors";
 import type { OnboardingStore } from "./ports";
 import { createOnboardingService, type OnboardingService, type Result } from "./service";
-import { createCrmRuntime, type CrmRuntimeOverrides } from "./crm/runtime";
+import { createCrmRuntime, type CrmRuntime, type CrmRuntimeOverrides } from "./crm/runtime";
 import type { FileSink } from "./ports";
 import { FactStore, revocationKey } from "./payments/facts";
 import { CompositeSubjectDirectory, DealSubjectDirectory } from "./links/deal-directory";
 import { productMapFromEnv } from "./links/product-map";
 import type { CrmDealReader } from "./links/types";
-import { createCrmReader } from "./links/crm-reader";
+import { createCrmReader, type ZohoCrmReader } from "./links/crm-reader";
 
 /** Largest accepted request body. The form allows up to 7 files of 20 MB; photos are optional, so the limit is generous but bounded. */
 export const DEFAULT_MAX_BODY_BYTES = 80 * 1024 * 1024;
 const JSON_HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } as const;
 
-type Runtime = { service: OnboardingService; maxBodyBytes: number };
+export type Runtime = {
+  service: OnboardingService;
+  maxBodyBytes: number;
+  /** CRM-backed persistence details for the operations endpoints (readiness, reconciliation). Absent for the `file` store. */
+  ops?: { crm: CrmRuntime; reader: ZohoCrmReader | undefined; readerSharesWriterGrant: boolean; storageDir: string };
+};
 export type Deps = { runtime?: () => Runtime };
 
 const req = (env: Record<string, string | undefined>, name: string): string => {
@@ -42,6 +47,7 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const kind = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
   let store: OnboardingStore;
   let sink: FileSink = new LocalFileSink(storageDir);
+  let crmRuntime: CrmRuntime | undefined;
   if (kind === "file") store = new FileOnboardingStore(storageDir);
   else if (kind === "crm") {
     // Single composition point of CRM + WorkDrive persistence. In a WorkDrive mode the sink is the deferred one: uploads are
@@ -49,10 +55,12 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
     const crm = createCrmRuntime(env, storageDir, sink, overrides);
     store = crm.store;
     sink = crm.sink;
+    crmRuntime = crm;
   } else throw new StoreError("NOT_CONFIGURED", "unknown store", "CONFIG");
   // Deal links are verified against trusted CRM data. Without an explicit reader the CRM store builds the read-only Sandbox reader
   // (one per process); the `file` store (development) keeps failing closed for Deal links exactly as before.
-  const dealReader = extras.dealReader ?? (kind === "crm" ? createCrmReader(env, overrides).reader : undefined);
+  const built = !extras.dealReader && kind === "crm" ? createCrmReader(env, overrides) : undefined;
+  const dealReader = extras.dealReader ?? built?.reader;
   const payments = new FactStore(join(storageDir, "payments"));
   const service = createOnboardingService({
     store,
@@ -79,7 +87,11 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });
   const limit = Number(env["SIX2FIT_ONBOARDING_MAX_BODY_BYTES"]);
-  return { service, maxBodyBytes: Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_MAX_BODY_BYTES };
+  return {
+    service,
+    maxBodyBytes: Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_MAX_BODY_BYTES,
+    ...(crmRuntime ? { ops: { crm: crmRuntime, reader: built?.reader, readerSharesWriterGrant: built?.sharedGrant ?? true, storageDir } } : {}),
+  };
 }
 
 const toResponse = (r: Result): Response => Response.json(r.body, { status: r.status, headers: { ...JSON_HEADERS, ...(r.headers ?? {}) } });
@@ -96,6 +108,16 @@ let cachedRuntime: Runtime | null = null;
 export const resetRuntimeCache = (): void => {
   cachedRuntime = null;
 };
+
+/** The process runtime (built once, see above) for the operations endpoints; a configuration failure is returned, not thrown. */
+export function processRuntime(): Runtime | null {
+  try {
+    cachedRuntime ??= runtimeFromEnv();
+    return cachedRuntime;
+  } catch {
+    return null;
+  }
+}
 
 function getRuntime(deps: Deps): Runtime | Response {
   try {

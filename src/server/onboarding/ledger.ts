@@ -113,6 +113,25 @@ export class IdempotencyLedger {
     }
   }
 
+  /** Read-only overview for operations: the current entry of every id (capped). Entries hold ids and states, never answers. */
+  async scan(cap = 5000): Promise<LedgerEntry[]> {
+    let ids: string[];
+    try {
+      ids = await readdir(this.baseDir);
+    } catch (e) {
+      if (isErrno(e, "ENOENT")) return [];
+      throw new StoreError("UNAVAILABLE", "ledger read failed", "LEDGER_IO");
+    }
+    if (ids.length > cap) throw new StoreError("TOO_LARGE", "ledger too large to scan", "LEDGER_SCAN_CAP");
+    const out: LedgerEntry[] = [];
+    for (const id of ids) {
+      if (!LEDGER_ID_PATTERN.test(id)) continue;
+      const e = await this.current(id);
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
   /** Atomically creates generation `entry.gen`. Returns false if another process created it first. */
   async claim(entry: LedgerEntry): Promise<boolean> {
     const dir = this.dirFor(entry.id);

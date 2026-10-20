@@ -25,6 +25,8 @@ export type CrmRuntime = {
   config: CrmConfig;
   ledgerDir: string;
   ledgerLeaseMs: number | undefined;
+  /** The raw CRM writer (lookups only are used by operations). */
+  lookup?: { lookupId(uniqueFormKey: string): Promise<string | null> };
   workdrive?: { config: WorkDriveConfig; api: WorkDriveApi; storage: WorkDriveSubmissionStorage };
 };
 
@@ -88,5 +90,5 @@ export function createCrmRuntime(env: Record<string, string | undefined>, storag
     documentIdentity: (permalink, key) => storage.readDocumentIdentity(permalink, key),
   });
   const store = new LedgerOnboardingStore(new WorkDriveStagingWriter(writer, storage), new IdempotencyLedger(ledgerDir), options);
-  return { store, sink: new DeferredFileSink(), persistence: config.persistence, config, ledgerDir, ledgerLeaseMs: lease, workdrive: { config: wd, api, storage } };
+  return { store, sink: new DeferredFileSink(), persistence: config.persistence, config, ledgerDir, ledgerLeaseMs: lease, lookup: writer, workdrive: { config: wd, api, storage } };
 }
