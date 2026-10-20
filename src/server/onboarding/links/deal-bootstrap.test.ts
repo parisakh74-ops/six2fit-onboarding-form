@@ -90,7 +90,8 @@ describe("Deal link opens the real bootstrap", () => {
     const boot = await w.service.bootstrap(token);
     expect(boot.status).toBe(200);
     expect(boot.body).toMatchObject({ scope: "Combo", entitlements: ["cellulite"], form_session_token: token, prefill: {} });
-    expect(JSON.stringify(boot.body)).not.toMatch(/ali|synthetic@|6223361000127220001/i);
+    // the opaque token (random base64) is excluded: a case-insensitive "ali" can occur in its signature by chance (flaky before)
+    expect(JSON.stringify({ ...boot.body, form_session_token: undefined })).not.toMatch(/ali|synthetic@|6223361000127220001/i);
     expect(w.storeCalls).toEqual([]); // nothing persisted, no CRM Request, no WorkDrive file
   });
 

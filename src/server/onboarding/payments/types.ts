@@ -39,11 +39,14 @@ export type ResolvedDeal = {
   entitlements: string[];
   isFirstRequest?: boolean | undefined;
   productRelatedTo?: string | undefined;
+  /** CRM Product id of the Deal (recorded in the link registry so the manual issuer reuses this very link). */
+  productId?: string | undefined;
 };
 
 /** Finds the CRM Deal created for a verified order. `null` = not (yet) there: CRM synchronisation can lag. */
 export interface DealResolver {
-  findByOrder(order: VerifiedOrder): Promise<ResolvedDeal | null>;
+  /** `"ambiguous"`: more than one Deal claims the order (known legacy duplicate-Deal behaviour): never guessed, goes to review. */
+  findByOrder(order: VerifiedOrder): Promise<ResolvedDeal | "ambiguous" | null>;
 }
 
 export class DeliveryError extends Error {

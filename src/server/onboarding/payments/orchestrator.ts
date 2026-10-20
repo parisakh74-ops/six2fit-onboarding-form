@@ -1,6 +1,7 @@
 import { sha256Hex } from "../canonical";
 import { signLinkToken } from "../tokens";
 import { FactStore, orderKey, revocationKey } from "./facts";
+import type { IssuedLinkRecord, IssuedLinkStore } from "../links/types";
 import { DeliveryError, PaymentError, type DealResolver, type LinkDelivery, type OrderVerifier, type ResolvedDeal, type VerifiedOrder } from "./types";
 
 /**
@@ -13,7 +14,9 @@ import { DeliveryError, PaymentError, type DealResolver, type LinkDelivery, type
 export type Outcome =
   | { state: "not_paid"; status: string }
   | { state: "awaiting_deal" }
-  | { state: "needs_review"; reason: "partial_refund" | "scope_unknown" | "delivery_unknown" | "delivery_exhausted" }
+  | { state: "needs_review"; reason: "partial_refund" | "scope_unknown" | "delivery_unknown" | "delivery_exhausted" | "deal_ambiguous" | "link_conflict" }
+  /** ONB-PAY-01: only the FIRST period is invited automatically; later periods are started manually by staff. */
+  | { state: "not_first_period" }
   | { state: "delivery_in_progress" }
   | { state: "delivery_retry_later" }
   | { state: "delivered"; jtiHint: string }
@@ -24,6 +27,12 @@ export type OrchestratorDeps = {
   verifier: OrderVerifier;
   deals: DealResolver;
   delivery: LinkDelivery;
+  /**
+   * The durable registry of issued links (the same one the manual issuer uses). When present, the payment-driven link is
+   * recorded there before delivery, so a later manual "Create Form" REUSES it, and an already existing different link of the
+   * Deal stops the automatic invitation (`link_conflict`) instead of producing a second onboarding for the same period.
+   */
+  registry?: IssuedLinkStore;
   /** HMAC secret of the onboarding links (same secret the Onboarding API verifies with). */
   linkSecret: string;
   /** Public base URL of the Onboarding form (`https://onboarding-staging.6tofit.com/`). */
@@ -55,7 +64,7 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
         deal_id: deal.dealId,
         jti: linkIdForOrder(orderId),
         scope: deal.scope,
-        entitlements: deal.entitlements,
+        entitlements: [...new Set(deal.entitlements)].sort(),
         exp,
         ...(deal.isFirstRequest !== undefined ? { is_first_request: deal.isFirstRequest } : {}),
         ...(deal.productRelatedTo ? { product_related_to: deal.productRelatedTo } : {}),
@@ -132,7 +141,8 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
     }
     if (!order.paid) return { state: "not_paid", status: order.status }; // pending / on-hold: a later event may complete it
 
-    await deps.facts.put(key, "paid", { order_id: orderId, status: order.status, total: order.total, currency: order.currency, date_paid: order.datePaid, gateway: order.gateway, at: now() });
+    // Auditable payment reference: order id, gateway, gateway transaction reference, paid date, amount. No customer data.
+    await deps.facts.put(key, "paid", { order_id: orderId, status: order.status, total: order.total, currency: order.currency, date_paid: order.datePaid, gateway: order.gateway, transaction_id: order.transactionId, at: now() });
 
     if (order.partialRefund && !issuedBefore) {
       await deps.facts.put(key, "review-partial_refund", { at: now() });
@@ -142,6 +152,10 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
     let deal = await deps.facts.get<ResolvedDeal>(key, "deal");
     if (!deal) {
       const found = await deps.deals.findByOrder(order); // may throw UNAVAILABLE: caller retries
+      if (found === "ambiguous") {
+        await deps.facts.put(key, "review-deal_ambiguous", { at: now() });
+        return { state: "needs_review", reason: "deal_ambiguous" };
+      }
       if (!found) {
         log("payment.awaiting_deal", {});
         return { state: "awaiting_deal" }; // CRM synchronisation can lag: the reconciliation sweep or the next event continues
@@ -154,10 +168,32 @@ export function createPaymentOnboarding(deps: OrchestratorDeps) {
       return { state: "needs_review", reason: "scope_unknown" };
     }
     const dealOk = deal as ResolvedDeal & { scope: NonNullable<ResolvedDeal["scope"]> };
+    // First period only (unknown = not proven first = no automatic invitation).
+    if (dealOk.isFirstRequest !== true) {
+      await deps.facts.put(key, "skipped-not_first_period", { at: now() });
+      log("payment.not_first_period", {});
+      return { state: "not_first_period" };
+    }
 
     // Exactly one issuance per order: the first writer decides the expiry; everyone else reuses it.
     await deps.facts.put(key, "issued", { jti: linkIdForOrder(orderId), deal_id: dealOk.dealId, at: now(), exp: Math.floor(now() / 1000) + ttl });
     const issued = (await deps.facts.get<{ exp: number }>(key, "issued")) as { exp: number };
+    if (deps.registry) {
+      const jti = linkIdForOrder(orderId);
+      const latest = await deps.registry.latestFor(dealOk.dealId);
+      let conflict = latest !== null && latest.jti !== jti;
+      if (!latest && !conflict) {
+        const record: IssuedLinkRecord | null = dealOk.productId
+          ? { deal_id: dealOk.dealId, jti, scope: dealOk.scope, entitlements: [...new Set(dealOk.entitlements)].sort(), iat: Math.floor(now() / 1000), exp: issued.exp, product_id: dealOk.productId, is_first_request: true, ...(dealOk.productRelatedTo && dealOk.productRelatedTo.length <= 255 ? { product_related_to: dealOk.productRelatedTo } : {}) }
+          : null;
+        conflict = record === null || !(await deps.registry.tryRecord(record, null));
+      }
+      if (conflict) {
+        await deps.facts.put(key, "review-link_conflict", { at: now() });
+        log("payment.link_conflict", {});
+        return { state: "needs_review", reason: "link_conflict" };
+      }
+    }
     return deliver(orderId, key, dealOk, issued.exp);
   }
 

@@ -170,7 +170,7 @@ describe("payment states", () => {
     paidThenRefunded.verifier.orders["17563"] = order({ status: "refunded", refunded: true });
     expect((await paidThenRefunded.orch.process("17563")).state).toBe("revoked");
     paidThenRefunded.verifier.orders["17563"] = order();
-    paidThenRefunded.deals.deals["17563"] = { dealId: DEAL_ID, contactId: "1", scope: "Combo", entitlements: [] };
+    paidThenRefunded.deals.deals["17563"] = { dealId: DEAL_ID, contactId: "1", scope: "Combo", entitlements: [], isFirstRequest: true };
     expect((await paidThenRefunded.orch.process("17563")).state).toBe("revoked");
     expect(paidThenRefunded.delivery.sent).toHaveLength(0);
   });
@@ -187,7 +187,7 @@ describe("delayed CRM synchronisation (a Deal is never assumed)", () => {
     const w = make({ deals: new Deals({ "17563": null }) });
     expect((await w.orch.process("17563")).state).toBe("awaiting_deal");
     expect((await w.orch.reconcile()).map((r) => r.outcome.state)).toEqual(["awaiting_deal"]);
-    w.deals.deals["17563"] = { dealId: DEAL_ID, contactId: "6067417000999999001", scope: "Combo", entitlements: [] };
+    w.deals.deals["17563"] = { dealId: DEAL_ID, contactId: "6067417000999999001", scope: "Combo", entitlements: [], isFirstRequest: true };
     expect(await w.orch.reconcile()).toEqual([]); // delivered: nothing left to do
     expect(w.delivery.sent).toHaveLength(1);
     await w.orch.reconcile();
@@ -233,7 +233,7 @@ describe("delivery failures", () => {
     expect(w.delivery.sent).toHaveLength(1);
     expect(w.delivery.sent[0]!.attempt).toBe(3);
 
-    const x = make({ verifier: new Verifier({ "17570": order({ orderId: "17570" }) }), deals: new Deals({ "17570": { dealId: DEAL_ID, contactId: "1", scope: "Combo", entitlements: [] } }) });
+    const x = make({ verifier: new Verifier({ "17570": order({ orderId: "17570" }) }), deals: new Deals({ "17570": { dealId: DEAL_ID, contactId: "1", scope: "Combo", entitlements: [], isFirstRequest: true } }) });
     x.delivery.mode = "refuse";
     for (let i = 0; i < 3; i += 1) {
       await x.orch.process("17570");

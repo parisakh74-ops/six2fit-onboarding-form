@@ -114,6 +114,18 @@ export class ZohoCrmReader implements CrmDealReader {
     return rows.some((r) => str(r["Form_Completion_Date"]) !== null);
   }
 
+  /**
+   * Deals whose `Transaction` (the WooCommerce order-pay URL written by the order function) names this order. The CRM has no
+   * dedicated order-id field yet (CRM-CHG-004 is a proposal), so the URL is matched exactly client-side; the URL (which carries an
+   * order key) is read in memory only and never logged or stored. Several Deals can claim one order (legacy re-fire): the caller decides.
+   */
+  async findDealIdsByOrder(orderId: string): Promise<string[]> {
+    if (!/^[1-9]\d{0,11}$/.test(orderId)) return [];
+    const needle = `/order-pay/${orderId}/`;
+    const rows = this.list(await this.get("/Deals/search", { criteria: `(Transaction:contains:${crit(needle)})`, fields: "id,Transaction", per_page: "50" }));
+    return [...new Set(rows.filter((r) => typeof r["Transaction"] === "string" && (r["Transaction"] as string).includes(needle)).map((r) => (typeof r["id"] === "string" && ID.test(r["id"]) ? r["id"] : "")).filter(Boolean))];
+  }
+
   async findContactIdsByPhone(phone: string): Promise<string[]> {
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 6 || digits.length > 20) return [];

@@ -38,12 +38,20 @@ type FetchLike = (url: string, init: { method: string; headers: Record<string, s
 
 /**
  * Reads an order through the WooCommerce REST API (`GET /wp-json/wc/v3/orders/<id>`, read-only key). Money is considered
- * received only when the status is `processing` or `completed` AND the shop recorded a paid date. A refund total that
+ * received only when the status is `processing` or `completed`, the shop recorded a paid date AND a gateway transaction reference exists. A refund total that
  * covers the order total is a full refund; a smaller one is a partial refund (a product decision, never auto-resolved).
  */
 export class WooCommerceOrderVerifier implements OrderVerifier {
   constructor(
-    private readonly cfg: { baseUrl: string; consumerKey: string; consumerSecret: string; fetch?: FetchLike; timeoutMs?: number },
+    private readonly cfg: {
+      baseUrl: string;
+      consumerKey: string;
+      consumerSecret: string;
+      fetch?: FetchLike;
+      timeoutMs?: number;
+      /** ONB-PAY-01: when set, only orders paid through one of these gateway ids count as paid (empty/undefined = any gateway). */
+      allowedGateways?: readonly string[];
+    },
   ) {
     if (!/^https:\/\/[^/\s]+$/.test(cfg.baseUrl.replace(/\/+$/, "")) || !cfg.consumerKey || !cfg.consumerSecret) throw new PaymentError("NOT_CONFIGURED");
   }
@@ -86,7 +94,16 @@ export class WooCommerceOrderVerifier implements OrderVerifier {
     return {
       orderId,
       status,
-      paid: (status === "processing" || status === "completed") && datePaid !== null && Number.isFinite(totalNum) && totalNum > 0,
+      // ONB-PAY-01: a status alone is NOT proof of payment. Money is received only with a paid date, a positive total AND a
+      // gateway transaction reference (the auditable payment reference); an allowed gateway when a list is configured.
+      paid:
+        (status === "processing" || status === "completed") &&
+        datePaid !== null &&
+        Number.isFinite(totalNum) &&
+        totalNum > 0 &&
+        typeof j["transaction_id"] === "string" &&
+        j["transaction_id"] !== "" &&
+        (!this.cfg.allowedGateways || this.cfg.allowedGateways.length === 0 || this.cfg.allowedGateways.includes(typeof j["payment_method"] === "string" ? (j["payment_method"] as string) : "")),
       refunded,
       partialRefund: refundTotal > 0 && !refunded,
       total,
