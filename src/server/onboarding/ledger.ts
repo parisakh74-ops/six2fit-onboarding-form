@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { link, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { StoreError } from "./errors";
-import type { CreateResult, CrmWriter, OnboardingStore, StoredRef, SubmissionRecord } from "./ports";
+import type { CreateResult, CrmWriter, OnboardingStore, StoredRef, SubmissionExtras, SubmissionRecord } from "./ports";
 
 /** Ledger ids are subject keys (`onb_<hex>`): safe file names, no path traversal. */
 const LEDGER_ID_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
@@ -205,7 +205,7 @@ export class LedgerOnboardingStore implements OnboardingStore {
     return null;
   }
 
-  async create(id: string, record: SubmissionRecord): Promise<CreateResult> {
+  async create(id: string, record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult> {
     const fp = record.fingerprint;
     const uk = record.unique_form_key;
     const now = this.opts.now;
@@ -213,14 +213,14 @@ export class LedgerOnboardingStore implements OnboardingStore {
       const cur = await this.ledger.current(id);
       if (cur === null) {
         const mine: LedgerEntry = { v: 1, id, gen: 1, fp, uk, state: "in_progress", phase: "claimed", attempts: 1, started: now(), updated: now() };
-        if (await this.ledger.claim(mine)) return this.write(mine, record);
+        if (await this.ledger.claim(mine)) return this.write(mine, record, extras);
         continue; // lost the race: re-read
       }
       if (cur.state === "integrity") throw new StoreError("CORRUPT", "more than one record for a submission", "DUPLICATE_RECORDS");
       if (cur.state === "created") return { status: "exists", record: stub(cur, cur.updated) };
       if (cur.state === "released") {
         const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, uk, state: "in_progress", phase: "claimed", attempts: cur.attempts + 1, started: now(), updated: now() };
-        if (await this.ledger.claim(mine)) return this.write(mine, record);
+        if (await this.ledger.claim(mine)) return this.write(mine, record, extras);
         continue;
       }
       // in_progress or unknown from here on.
@@ -239,7 +239,7 @@ export class LedgerOnboardingStore implements OnboardingStore {
         const mine: LedgerEntry = { v: 1, id, gen: cur.gen + 1, fp, uk, state: "in_progress", phase: "claimed", attempts: cur.attempts + 1, started: now(), updated: now() };
         if (await this.ledger.claim(mine)) {
           this.log("ledger.takeover_unsent", { attempts: mine.attempts });
-          return this.write(mine, record);
+          return this.write(mine, record, extras);
         }
         continue;
       }
@@ -301,7 +301,7 @@ export class LedgerOnboardingStore implements OnboardingStore {
   }
 
   /** The single place where a POST can happen: the caller owns the newest generation. */
-  private async write(mine: LedgerEntry, record: SubmissionRecord): Promise<CreateResult> {
+  private async write(mine: LedgerEntry, record: SubmissionRecord, extras?: SubmissionExtras): Promise<CreateResult> {
     let result: CreateResult;
     try {
       // Durable "a POST may start now" marker BEFORE the request: if this process dies from here on, the outcome is unknown.
@@ -311,7 +311,7 @@ export class LedgerOnboardingStore implements OnboardingStore {
       throw e;
     }
     try {
-      result = await this.inner.create(record);
+      result = await this.inner.create(record, extras);
     } catch (e) {
       const store = e instanceof StoreError ? e : null;
       const state: LedgerState = store?.kind === "CORRUPT" ? "integrity" : store?.notWritten === true ? "released" : "unknown";

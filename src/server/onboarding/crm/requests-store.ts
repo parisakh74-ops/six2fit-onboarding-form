@@ -2,13 +2,23 @@ import { StoreError } from "../errors";
 import type { CreateResult, CrmWriter, StoredRef, SubmissionRecord } from "../ports";
 import { INVALID, ZohoClient, ZohoTransportError, type ZohoResponse } from "./client";
 import type { CrmConfig } from "./config";
-import { buildRequestsRecord, parseStoredRequest } from "./requests-mapping";
+import { buildRequestsRecord, parseDocumentReference, parseStoredRequest } from "./requests-mapping";
 
 export type RequestsStoreDeps = {
   client: ZohoClient;
   config: CrmConfig;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
+  /**
+   * WorkDrive-reference mode only: resolves the identity (fingerprint, submit time) of the canonical document behind a
+   * stored permalink, verified against the document store. The CRM itself never holds the answers or the fingerprint.
+   */
+  documentIdentity?: (permalink: string, uniqueFormKey: string) => Promise<{ fingerprint: string; submitted_at: string }>;
+  /**
+   * WorkDrive-key mode only: resolves the verified identity of the canonical document of a submission from its
+   * `uniqueformkey` alone (folder named by the key, exactly one `submission.v1.json`, fingerprint checked against the content).
+   */
+  documentIdentityByKey?: (uniqueFormKey: string) => Promise<{ fingerprint: string; submitted_at: string }>;
   /** Codes, counts and timings only. */
   log?: (event: string, fields: Record<string, string | number | boolean>) => void;
 };
@@ -30,7 +40,14 @@ const DEFINITE_REFUSALS = new Set(["AUTH_FAILED", "FORBIDDEN", "RATE_LIMITED"]);
  *  - `StoreError.notWritten` is set only when nothing can have been written.
  */
 export class RequestsStore implements CrmWriter {
-  constructor(private readonly deps: RequestsStoreDeps) {}
+  constructor(private readonly deps: RequestsStoreDeps) {
+    if (deps.config.persistence === "workdrive-ref" && !deps.documentIdentity) {
+      throw new StoreError("NOT_CONFIGURED", "requests store: document identity resolver missing", "CRM_NOT_CONFIGURED");
+    }
+    if (deps.config.persistence === "workdrive-key" && !deps.documentIdentityByKey) {
+      throw new StoreError("NOT_CONFIGURED", "requests store: document identity resolver missing", "CRM_NOT_CONFIGURED");
+    }
+  }
 
   private log(event: string, fields: Record<string, string | number | boolean> = {}) {
     this.deps.log?.(event, fields);
@@ -104,7 +121,19 @@ export class RequestsStore implements CrmWriter {
     if (res.status === 204) throw new StoreError("UNAVAILABLE", "record not readable yet", "READ_AFTER_WRITE");
     const item = this.dataList(res)[0];
     if (isObj(item) && item["uniqueformkey"] !== key) throw new StoreError("CORRUPT", "stored request does not match its key", "KEY_MISMATCH");
-    return parseStoredRequest(item, this.deps.config.rawField);
+    const { config, documentIdentity, documentIdentityByKey } = this.deps;
+    if (config.persistence === "workdrive-key" && documentIdentityByKey) {
+      // The CRM holds neither the answers nor a reference: existence of the CRM record is proven by the unique key, the
+      // content identity by the verified WorkDrive document of the SAME key.
+      const identity = await documentIdentityByKey(key);
+      return { fingerprint: identity.fingerprint, submitted_at: identity.submitted_at, record_ref: recordId };
+    }
+    if (config.persistence === "workdrive-ref" && config.docRefField && documentIdentity) {
+      const permalink = parseDocumentReference(item, config.docRefField);
+      const identity = await documentIdentity(permalink, key);
+      return { fingerprint: identity.fingerprint, submitted_at: identity.submitted_at, record_ref: recordId, document_ref: permalink };
+    }
+    return parseStoredRequest(item, config.rawField as string);
   }
 
   async create(record: SubmissionRecord): Promise<CreateResult> {
@@ -120,7 +149,7 @@ export class RequestsStore implements CrmWriter {
   private async createInner(record: SubmissionRecord, state: { posted: boolean }): Promise<CreateResult> {
     const { config } = this.deps;
     this.assertKey(record.unique_form_key);
-    const mapped = buildRequestsRecord(record, { rawField: config.rawField, maxRawChars: config.maxRawPayloadChars, setNewRecordFlag: config.setNewRecordFlag });
+    const mapped = buildRequestsRecord(record, { persistence: config.persistence, rawField: config.rawField, docRefField: config.docRefField, maxRawChars: config.maxRawPayloadChars, setNewRecordFlag: config.setNewRecordFlag });
     await this.deps.client.verifyEnvironment();
 
     // `trigger: []` suppresses workflows/blueprints/approvals on the new record. Default off for automations (Sandbox rules still point at Production Flow).

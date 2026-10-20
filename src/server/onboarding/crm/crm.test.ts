@@ -55,7 +55,7 @@ function world(zoho = new MockZoho(), env: Record<string, string> = {}) {
   /** A separate "worker": its own service and store objects; shares only the ledger directory and the CRM. */
   const worker = () => {
     const store = createRequestsStore({ ...ENV, ...env }, join(dir, "ledger"), { fetch: zoho.fetch, now: () => clock.t, sleep, log: (event, fields) => logs.push({ event, fields }) });
-    return createOnboardingService({ store, directory: new Directory(), sink: new LocalFileSink(dir), secret: SECRET, now: () => clock.t, log: (event, fields) => logs.push({ event, fields: fields ?? {} }) });
+    return createOnboardingService({ store, directory: new Directory(), sink: new LocalFileSink(dir), secret: SECRET, acceptConsultHandoff: true, now: () => clock.t, log: (event, fields) => logs.push({ event, fields: fields ?? {} }) });
   };
   return { zoho, clock, logs, worker, advance: (ms: number) => (clock.t += ms) };
 }

@@ -1,6 +1,7 @@
 import { canonicalJson, fingerprint } from "../canonical";
 import { StoreError } from "../errors";
 import type { StoredRef, SubmissionRecord } from "../ports";
+import { docRefFieldProblem } from "./config";
 import { FIELD_DISPOSITION } from "./field-disposition";
 
 /**
@@ -84,19 +85,64 @@ const isoDay = (v: unknown): string | undefined => (typeof v === "string" && /^\
 const hhmm = (v: unknown): string | undefined => (typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : undefined);
 const codes = (v: unknown): string[] | undefined => (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string") ? (v as string[]) : undefined);
 
+const WD_FILE_ID = /^[A-Za-z0-9]{20,64}$/;
+const refError = (code: "DOCUMENT_REF_MISSING" | "DOCUMENT_REF_INVALID" | "DOC_REF_FIELD_CONFLICT" | "DOC_REF_FIELD_INVALID", message: string): never => {
+  const e = new StoreError("REJECTED", message, code);
+  e.notWritten = true; // nothing was sent to the CRM
+  throw e;
+};
+
+/**
+ * The private WorkDrive permalink of the canonical document: exactly `https://workdrive.zoho.com/file/<resource_id>`.
+ * Accepts the internal reference `wd:<resource_id>` or the permalink itself. Anything else is refused BEFORE a CRM payload
+ * exists: no query string (sharing keys, tokens), no fragment (fingerprints), no credentials, no other host, no port.
+ * The permalink alone grants no access (WorkDrive requires sign-in and folder membership).
+ */
+export function documentPermalink(ref: unknown): string {
+  if (typeof ref !== "string" || ref.trim() === "") return refError("DOCUMENT_REF_MISSING", "document reference is missing");
+  const wd = /^wd:([A-Za-z0-9]+)$/.exec(ref);
+  if (wd) return WD_FILE_ID.test(wd[1] as string) ? `https://workdrive.zoho.com/file/${wd[1] as string}` : refError("DOCUMENT_REF_INVALID", "document reference is not valid");
+  let u: URL;
+  try {
+    u = new URL(ref);
+  } catch {
+    return refError("DOCUMENT_REF_INVALID", "document reference is not valid");
+  }
+  const m = /^\/file\/([A-Za-z0-9]+)$/.exec(u.pathname);
+  const clean = u.protocol === "https:" && u.hostname === "workdrive.zoho.com" && u.port === "" && u.username === "" && u.password === "" && u.search === "" && u.hash === "";
+  if (!clean || !m || !WD_FILE_ID.test(m[1] as string) || ref !== `https://workdrive.zoho.com/file/${m[1] as string}`) return refError("DOCUMENT_REF_INVALID", "document reference is not valid");
+  return ref;
+}
+
+/** Structured targets this adapter writes: the reference field must never collide with one. */
+const MAPPED_TARGETS: ReadonlySet<string> = new Set([
+  ...Object.values(FIELD_DISPOSITION).map((v) => v.target).filter((t): t is string => typeof t === "string"),
+  ...Object.values(MEASURES),
+  "Email", "Sex", "Height_cm", "Current_Weight_Kg", "Goal_Weight", "Goal", "Daily_Activities1", "Smoke", "Alcohol1", "Workout_Location",
+]);
+
 export function buildRequestsRecord(
   r: SubmissionRecord,
-  opts: { rawField: string; maxRawChars: number; setNewRecordFlag: boolean },
+  opts: { persistence?: "raw-field" | "workdrive-ref" | "workdrive-key"; rawField?: string | undefined; docRefField?: string | undefined; maxRawChars: number; setNewRecordFlag: boolean },
 ): { record: RequestsRecord; rawChars: number } {
+  const persistence = opts.persistence ?? "raw-field";
+  // Validated BEFORE any payload is built: a bad configuration or reference can never reach the CRM.
+  let permalink: string | undefined;
+  if (persistence === "workdrive-ref") {
+    const f = opts.docRefField;
+    if (typeof f !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(f)) return refError("DOC_REF_FIELD_INVALID", "document reference field is not configured");
+    if (docRefFieldProblem(f) !== null || MAPPED_TARGETS.has(f)) return refError("DOC_REF_FIELD_CONFLICT", "document reference field collides with a mapped or reserved field");
+    permalink = documentPermalink(r.document_ref);
+  }
   // Zoho Requests are always Deal-linked in the current process; a Consultation-bound link has no Deal.
   if (r.subject.kind !== "deal") {
     const e = new StoreError("REJECTED", "link type cannot be stored in CRM", "SUBJECT_NOT_ELIGIBLE");
     e.notWritten = true;
     throw e;
   }
-  const raw = canonicalJson(rawDocument(r));
+  const raw = persistence === "raw-field" ? canonicalJson(rawDocument(r)) : "";
   const rawChars = [...raw].length;
-  if (rawChars > opts.maxRawChars) {
+  if (persistence === "raw-field" && rawChars > opts.maxRawChars) {
     const e = new StoreError("TOO_LARGE", "complete answers exceed the CRM field capacity", "RAW_TOO_LARGE");
     e.notWritten = true;
     throw e;
@@ -112,8 +158,14 @@ export function buildRequestsRecord(
     Form_Version: ONBOARDING_FORM_VERSION,
     Submitted_At: iso(r.submitted_at),
     Onboarding_Scope: r.scope,
-    [opts.rawField]: raw,
   };
+  if (persistence === "raw-field") {
+    if (typeof opts.rawField !== "string") return refError("DOC_REF_FIELD_INVALID", "complete-answers field is not configured");
+    rec[opts.rawField] = raw;
+  } else if (permalink !== undefined && typeof opts.docRefField === "string") {
+    if (opts.docRefField in rec) return refError("DOC_REF_FIELD_CONFLICT", "document reference field collides with a mapped or reserved field");
+    rec[opts.docRefField] = permalink; // the ONLY reference to the document: no answers, no fingerprint, no file names
+  }
   if (opts.setNewRecordFlag) rec["Is_New_Record_Created"] = true;
   if (r.is_first_request !== undefined) rec["Is_First_Request"] = r.is_first_request ? "True" : "False";
   if (r.product_related_to) rec["Product_Related_To"] = r.product_related_to;
@@ -223,4 +275,19 @@ export function parseStoredRequest(item: unknown, rawField: string): StoredRef {
   if (recomputed !== fp) return corrupt("RAW_TAMPERED");
   const id = typeof rec["id"] === "string" ? rec["id"] : undefined;
   return { fingerprint: fp, submitted_at: String(doc["submitted_at"] ?? ""), ...(id ? { record_ref: id } : {}) };
+}
+
+/** Reads the private permalink back from a stored Request (WorkDrive-reference mode). It is validated again: a hand-edited value is CORRUPT. */
+export function parseDocumentReference(item: unknown, docRefField: string): string {
+  const corrupt = (code: string): never => {
+    throw new StoreError("CORRUPT", "stored request is not readable", code);
+  };
+  if (item === null || typeof item !== "object") return corrupt("INVALID_RESPONSE");
+  const v = (item as Record<string, unknown>)[docRefField];
+  if (typeof v !== "string" || v.trim() === "") return corrupt("DOCUMENT_REF_MISSING");
+  try {
+    return documentPermalink(v);
+  } catch {
+    return corrupt("DOCUMENT_REF_INVALID");
+  }
 }

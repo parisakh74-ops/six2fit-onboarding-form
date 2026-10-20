@@ -28,6 +28,8 @@ export type OnboardingServiceDeps = {
   secret: string;
   /** True when the link was revoked (payment refunded/cancelled). Optional; a failing check fails closed (503). */
   isRevoked?: (linkId: string) => Promise<boolean>;
+  /** Consultation (v1) hand-off tokens are REFUSED unless this is explicitly true (development/staging only; never in production). */
+  acceptConsultHandoff?: boolean;
   now?: () => number;
   /** Counters and codes only: never answers, tokens, ids of people or paths. */
   log?: (event: string, fields?: Record<string, string | number | boolean>) => void;
@@ -53,6 +55,10 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
       log("onboarding.token_rejected", { code });
       return err(401, "INVALID_OR_EXPIRED_SESSION");
     }
+    if (claims.v === 1 && deps.acceptConsultHandoff !== true) {
+      log("onboarding.consult_handoff_refused", {});
+      return err(401, "INVALID_OR_EXPIRED_SESSION");
+    }
     if (deps.isRevoked) {
       try {
         if (await deps.isRevoked(claims.jti)) {
@@ -73,6 +79,9 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
     log(code === "DUPLICATE_RECORDS" ? "onboarding.integrity_exception" : "onboarding.storage_failure", { kind, ...(code ? { code } : {}), ms: now() - startedAt });
     if (e instanceof StoreError && e.code === "IDENTITY_UNAVAILABLE") return err(503, "IDENTITY_UNAVAILABLE");
     if (e instanceof StoreError && e.code === "SUBJECT_NOT_ELIGIBLE") return err(403, "NOT_ELIGIBLE");
+    if (e instanceof StoreError && (e.code === "PREFILL_UNAVAILABLE" || e.code === "PREFILL_CONFIGURATION")) return err(503, e.code);
+    // Same key, different content, found in the document store when the ledger could not arbitrate (e.g. after its loss).
+    if (e instanceof StoreError && e.code === "WD_SUBMISSION_CONFLICT") return err(409, "SUBMISSION_CONFLICT");
     return err(503, "STORAGE_UNAVAILABLE");
   };
 
@@ -81,8 +90,12 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
     const claims = await authorize(token);
     if ("status" in claims) return claims;
     try {
-      const resolved = await deps.directory.resolve(claims.subject);
+      const resolved = await deps.directory.resolve(claims.subject, claims);
       if (!resolved) return err(404, "SESSION_NOT_FOUND");
+      // Prefill runs only AFTER authorisation and can neither grant nor deny access.
+      const prefill = deps.directory.verificationGroupsFor?.(claims.subject) && deps.directory.consultationPrefill
+        ? ((await deps.directory.consultationPrefill(claims.subject, claims))?.prefill ?? {})
+        : resolved.prefill;
       return {
         status: 200,
         headers: { ...NO_STORE },
@@ -90,7 +103,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
           form_session_token: token,
           scope: claims.scope,
           entitlements: claims.entitlements,
-          prefill: resolved.prefill,
+          prefill,
           expires_at: new Date(claims.exp * 1000).toISOString(),
         },
       };
@@ -107,9 +120,10 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
 
     let prefillBases: Set<string>;
     try {
-      const resolved = await deps.directory.resolve(claims.subject);
+      const resolved = await deps.directory.resolve(claims.subject, claims);
       if (!resolved) return err(404, "SESSION_NOT_FOUND");
-      prefillBases = new Set(Object.keys(resolved.prefill).map((k) => k.split(".")[0] as string));
+      // Static groups when the directory provides them (no second lookup at submit); otherwise derived from the resolved prefill.
+      prefillBases = new Set(deps.directory.verificationGroupsFor?.(claims.subject) ?? Object.keys(resolved.prefill).map((k) => k.split(".")[0] as string));
     } catch (e) {
       return failure(e, startedAt);
     }
@@ -162,9 +176,16 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
       if (existing) return existing.fingerprint === fp ? done(ok(true), "onboarding.deduplicated") : done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
 
       // Files first (content-addressed, idempotent on retry), so the CRM record can reference them.
+      // A deferred sink (WorkDrive) writes them later, under the ledger claim, inside `store.create`: nothing is written here.
       const stored: StoredFile[] = [];
+      const fileBytes: Record<string, Uint8Array> = {};
       for (const f of files) {
         const src = input.files[f.key] as FileInput & { bytes: Uint8Array };
+        if (deps.sink.deferred) {
+          fileBytes[f.key] = src.bytes;
+          stored.push({ ...f });
+          continue;
+        }
         const ref = await deps.sink.put(key, f.key, { name: f.name, type: f.type, bytes: src.bytes, sha256: f.sha256 });
         stored.push({ ...f, ref });
       }
@@ -184,7 +205,7 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
         is_first_request: claims.isFirstRequest,
         product_related_to: claims.productRelatedTo,
       };
-      const created = await deps.store.create(key, record);
+      const created = await deps.store.create(key, record, deps.sink.deferred ? { fileBytes } : undefined);
       if (created.status === "created") return done(ok(false), "onboarding.created");
       return created.record.fingerprint === fp ? done(ok(true), "onboarding.deduplicated") : done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
     } catch (e) {

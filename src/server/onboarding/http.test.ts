@@ -25,7 +25,7 @@ afterEach(async () => {
 const deps = (max = 80 * 1024 * 1024): Deps => ({
   runtime: () => ({
     maxBodyBytes: max,
-    service: createOnboardingService({ store: new FileOnboardingStore(dir), directory: new ConsultHandoffDirectory(dir), sink: new LocalFileSink(dir), secret: SECRET, now: () => NOW_MS }),
+    service: createOnboardingService({ store: new FileOnboardingStore(dir), directory: new ConsultHandoffDirectory(dir), sink: new LocalFileSink(dir), secret: SECRET, acceptConsultHandoff: true, now: () => NOW_MS }),
   }),
 });
 
@@ -122,10 +122,10 @@ describe("HTTP layer: submit (multipart)", () => {
 
 describe("runtime configuration", () => {
   it("is staging-only, needs a long secret and a storage directory, and CRM mode needs the explicit CRM configuration", () => {
-    const ok = { SIX2FIT_STAGING_MODE: "true", SIX2FIT_STAGING_TOKEN_SECRET: SECRET, SIX2FIT_STAGING_STORAGE_DIR: dir };
+    const ok = { SIX2FIT_STAGING_MODE: "true", SIX2FIT_ONBOARDING_TOKEN_SECRET: SECRET, SIX2FIT_STAGING_STORAGE_DIR: dir };
     expect(() => runtimeFromEnv(ok)).not.toThrow();
     expect(() => runtimeFromEnv({ ...ok, SIX2FIT_STAGING_MODE: "false" })).toThrow();
-    expect(() => runtimeFromEnv({ ...ok, SIX2FIT_STAGING_TOKEN_SECRET: "short" })).toThrow();
+    expect(() => runtimeFromEnv({ ...ok, SIX2FIT_ONBOARDING_TOKEN_SECRET: "short" })).toThrow();
     expect(() => runtimeFromEnv({ ...ok, SIX2FIT_STAGING_STORAGE_DIR: "" })).toThrow();
     expect(() => runtimeFromEnv({ ...ok, SIX2FIT_ONBOARDING_STORE: "crm" })).toThrow(); // CRM not enabled/configured
     expect(() => runtimeFromEnv({ ...ok, SIX2FIT_ONBOARDING_STORE: "bogus" })).toThrow();

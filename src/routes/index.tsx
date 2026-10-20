@@ -7,10 +7,10 @@ import { STEPS, validate, type Ctx } from "@/components/onboarding/steps";
 import { LABELS, OPTS, formatValue, isActive, type Answers, type Scope } from "@/lib/onboarding/data";
 import { loadBootstrap, submitOnboarding, type OnboardingBootstrap } from "@/lib/onboarding/integration";
 import { isFileMeta } from "@/lib/onboarding/files";
+import { clearDraft, loadDraft, purgeDrafts, saveDraft } from "@/lib/onboarding/draft";
 import { handleOnboardingBootstrap } from "./api/onboarding/bootstrap";
 import { handleOnboardingSubmission } from "./api/onboarding/submit";
 
-const STORAGE = "six2fit-onboarding-v5";
 const SCOPE_LABEL: Record<Scope, string> = { Diet: "برنامهٔ تغذیه", Training: "برنامهٔ تمرین", Combo: "تغذیه + تمرین", CIP: "CIP — تغذیه + تمرین" };
 
 export const Route = createFileRoute("/")({
@@ -77,7 +77,7 @@ function Onboarding() {
       setBootstrapState("ready");
     }).catch((error: unknown) => {
       if ((error as Error)?.name === "AbortError") return;
-      setBootstrapError(error instanceof Error && error.message === "BOOTSTRAP_INVALID" ? "اطلاعات شروع فرم معتبر نیست." : "لینک فرم معتبر نیست یا منقضی شده است.");
+      setBootstrapError(error instanceof Error && error.message === "SESSION_EXPIRED" ? "این فرم منقضی شده است. برای ادامه از پشتیبان بخواهید فرم جدید برایتان ارسال کند." : error instanceof Error && error.message === "LINK_REVOKED" ? "این لینک دیگر معتبر نیست. برای ادامه از پشتیبان بخواهید لینک جدید برایتان ارسال کند." : error instanceof Error && error.message === "PREFILL_UNAVAILABLE" ? "اتصال موقتاً برقرار نشد. لطفاً چند دقیقه دیگر دوباره تلاش کنید." : error instanceof Error && error.message === "PREFILL_CONFIGURATION" ? "این فرم موقتاً در دسترس نیست. لطفاً با پشتیبان تماس بگیرید." : error instanceof Error && error.message === "BOOTSTRAP_INVALID" ? "اطلاعات شروع فرم معتبر نیست." : "لینک فرم معتبر نیست یا منقضی شده است.");
       setBootstrapState("error");
     });
     return () => controller.abort();
@@ -86,17 +86,17 @@ function Onboarding() {
   useEffect(() => {
     if (bootstrapState !== "ready" || loaded.current) return;
     try {
-      const raw = localStorage.getItem(STORAGE);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (s && typeof s === "object" && s.a && typeof s.a === "object") {
-          // Chosen files cannot be restored (only their metadata was saved): the person selects them again.
-          const restored = Object.fromEntries(Object.entries(s.a as Record<string, unknown>).filter(([, v]) => !isFileMeta(v)));
-          setA({ ...bootstrap?.prefill, ...restored, __entitlements: bootstrap!.entitlements });
-          setVer(s.ver && typeof s.ver === "object" ? s.ver : {});
-          setStep(Math.min(Number.isInteger(s.step) ? s.step : 0, total - 1));
-          setResumed(true);
-        }
+      // Drafts are scoped to this customer's journey; the legacy global draft and other journeys' drafts are purged first.
+      const token = bootstrap!.form_session_token;
+      purgeDrafts(localStorage, token, Date.now());
+      const s = loadDraft(localStorage, token, Date.now());
+      if (s) {
+        // Chosen files cannot be restored (only their metadata was saved): the person selects them again.
+        const restored = Object.fromEntries(Object.entries(s.a).filter(([, v]) => !isFileMeta(v)));
+        setA({ ...bootstrap?.prefill, ...restored, __entitlements: bootstrap!.entitlements });
+        setVer(s.ver as Record<string, "confirmed" | "edited">);
+        setStep(Math.min(Number.isInteger(s.step) ? s.step : 0, total - 1));
+        setResumed(true);
       }
     } catch {}
     loaded.current = true;
@@ -104,9 +104,9 @@ function Onboarding() {
 
   useEffect(() => {
     if (!loaded.current || status === "done") return;
-    const t = setTimeout(() => { localStorage.setItem(STORAGE, JSON.stringify({ a, ver, step })); setSavedAt(new Date()); }, 400);
+    const t = setTimeout(() => { if (bootstrap && saveDraft(localStorage, bootstrap.form_session_token, { a, ver, step }, Date.now())) setSavedAt(new Date()); }, 400);
     return () => clearTimeout(t);
-  }, [a, ver, step, status]);
+  }, [a, ver, step, status, bootstrap]);
 
   const on = (k: string) => isActive(k, a, scope);
 
@@ -163,17 +163,18 @@ function Onboarding() {
     try {
       await submitOnboarding(bootstrap, p.answers, p.verification_state);
       setPayload(p);
-      localStorage.removeItem(STORAGE);
+      if (bootstrap) clearDraft(localStorage, bootstrap.form_session_token);
       setStatus("done");
       top.current?.scrollIntoView({ behavior: "smooth" });
     } catch (error) {
       setStatus("idle");
       const code = error instanceof Error ? error.message : "";
       setBootstrapError(
-        code === "SUBMISSION_CONFLICT" ? "این فرم قبلاً با همین ارسال ثبت شده یا ارسال هم‌زمان تشخیص داده شد."
-        : code === "SESSION_EXPIRED" ? "لینک فرم منقضی شده است. لطفاً از لینک جدید استفاده کنید."
+        code === "SUBMISSION_CONFLICT" ? "اطلاعات این فرم قبلاً ثبت شده است. اگر لازم است اطلاعاتی اصلاح شود، موضوع را با پشتیبان در میان بگذارید."
+        : code === "LINK_REVOKED" ? "این لینک دیگر معتبر نیست. برای ادامه از پشتیبان بخواهید لینک جدید برایتان ارسال کند."
+        : code === "SESSION_EXPIRED" ? "این فرم منقضی شده است. برای ادامه از پشتیبان بخواهید فرم جدید برایتان ارسال کند."
         : code === "SUBMISSION_INVALID" ? "برخی پاسخ‌ها معتبر نیست. لطفاً مرور نهایی را بررسی و دوباره تلاش کنید."
-        : "ثبت اطلاعات انجام نشد. لطفاً دوباره تلاش کنید.");
+        : "ثبت اطلاعات انجام نشد. پاسخ‌هایی که وارد کرده‌اید همچنان در همین صفحه است. اگر پیام موفقیت را ندیدید، چند دقیقه بعد دوباره دکمهٔ ارسال را بزنید؛ از ثبت تکراری جلوگیری می‌شود. اگر صفحه را ببندید یا بازآوری کنید، تصاویر را باید دوباره انتخاب کنید. اگر مشکل ادامه داشت با پشتیبان تماس بگیرید.");
     }
   };
 
@@ -195,6 +196,11 @@ function Onboarding() {
             
             <Card>
               <StepProgress current={step + 1} total={total} title={isReview ? "مرور نهایی" : cur.title} />
+              {step === 0 && !resumed && bootstrap && Object.keys(bootstrap.prefill).length > 0 && (
+                <div className="mb-5" data-testid="prefill-notice">
+                  <Notice><span>برخی پاسخ‌ها از فرم مشاورهٔ شما پر شده‌اند؛ لطفاً همه را بررسی و در صورت نیاز ویرایش کنید.</span></Notice>
+                </div>
+              )}
               {resumed && step > 0 && (
                 <div className="mb-5">
                   <Notice><div className="flex items-center justify-between gap-3"><span>پاسخ‌های قبلی شما بازیابی شد؛ از همین‌جا ادامه دهید.</span><GhostButton className="px-2 py-1 text-[12px]" onClick={() => setResumed(false)}>بستن</GhostButton></div></Notice>
@@ -211,7 +217,7 @@ function Onboarding() {
                 <div className="mx-auto grid max-w-[696px] grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                   {isReview ? <PrimaryButton className="sm:order-3 sm:ms-auto" disabled={status === "sending"} onClick={submit}>{status === "sending" ? <><Spinner />در حال ثبت…</> : "ثبت نهایی"}</PrimaryButton> : <PrimaryButton className="sm:order-3 sm:ms-auto" onClick={next}>{step === steps.length - 1 ? "مرور نهایی" : "ادامه"}</PrimaryButton>}
                   <GhostButton disabled={step === 0 || status === "sending"} onClick={() => go(step - 1)}>مرحلهٔ قبل</GhostButton>
-                  <GhostButton className="col-span-2 py-2 text-[13px] sm:py-3" disabled={status === "sending"} onClick={() => { localStorage.setItem(STORAGE, JSON.stringify({ a, ver, step })); setSavedAt(new Date()); alert("پیشرفت شما ذخیره شد. هر زمان برگردید، از همین مرحله ادامه می‌دهید."); }}>ذخیره و ادامه بعداً</GhostButton>
+                  <GhostButton className="col-span-2 py-2 text-[13px] sm:py-3" disabled={status === "sending"} onClick={() => { if (bootstrap) saveDraft(localStorage, bootstrap.form_session_token, { a, ver, step }, Date.now()); setSavedAt(new Date()); alert("پیشرفت شما ذخیره شد. هر زمان برگردید، از همین مرحله ادامه می‌دهید."); }}>ذخیره و ادامه بعداً</GhostButton>
                 </div>
               </div>
             </Card>

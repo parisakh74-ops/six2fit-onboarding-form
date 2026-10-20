@@ -5,6 +5,9 @@ import type { OnboardingStore } from "./ports";
 import { createOnboardingService, type OnboardingService, type Result } from "./service";
 import { createRequestsStore } from "./crm/factory";
 import { FactStore, revocationKey } from "./payments/facts";
+import { CompositeSubjectDirectory, DealSubjectDirectory } from "./links/deal-directory";
+import { productMapFromEnv } from "./links/product-map";
+import type { CrmDealReader } from "./links/types";
 
 /** Largest accepted request body. The form allows up to 7 files of 20 MB; photos are optional, so the limit is generous but bounded. */
 export const DEFAULT_MAX_BODY_BYTES = 80 * 1024 * 1024;
@@ -19,10 +22,19 @@ const req = (env: Record<string, string | undefined>, name: string): string => {
   return v;
 };
 
-/** Builds the service from server-only environment variables (never from the browser). */
-export function runtimeFromEnv(env: Record<string, string | undefined> = process.env): Runtime {
+/**
+ * Builds the service from server-only environment variables (never from the browser).
+ * `dealReader` is the READ-ONLY CRM reader for Deal-bound links. Without it (the real Sandbox reader does not exist yet)
+ * Deal links fail closed exactly as before; Consultation links are unaffected either way.
+ */
+export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader } = {}): Runtime {
   if (req(env, "SIX2FIT_STAGING_MODE") !== "true") throw new StoreError("NOT_CONFIGURED", "staging mode disabled", "CONFIG");
-  const secret = req(env, "SIX2FIT_STAGING_TOKEN_SECRET");
+  const kind0 = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
+  // O1: Consultation hand-off tokens are refused unless explicitly enabled for development/staging, and never with the CRM store.
+  const acceptConsultHandoff = env["SIX2FIT_ACCEPT_CONSULT_HANDOFF"] === "true" && kind0 !== "crm";
+  // Secret separation: the onboarding signing secret has its own variable. The legacy shared variable is honoured ONLY while the
+  // hand-off is explicitly enabled (so a production-like configuration cannot keep sharing the Consultation secret).
+  const secret = (env["SIX2FIT_ONBOARDING_TOKEN_SECRET"] ?? "").trim() || (acceptConsultHandoff ? req(env, "SIX2FIT_STAGING_TOKEN_SECRET") : req(env, "SIX2FIT_ONBOARDING_TOKEN_SECRET"));
   if (secret.length < 32) throw new StoreError("NOT_CONFIGURED", "secret too short", "CONFIG");
   const storageDir = req(env, "SIX2FIT_STAGING_STORAGE_DIR");
   const kind = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
@@ -34,7 +46,23 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   const service = createOnboardingService({
     store,
     isRevoked: async (linkId) => (await payments.get(revocationKey(linkId), "revoked")) !== null,
-    directory: new ConsultHandoffDirectory(storageDir),
+    acceptConsultHandoff,
+    directory: new CompositeSubjectDirectory(
+      acceptConsultHandoff ? new ConsultHandoffDirectory(storageDir) : null,
+      extras.dealReader
+        ? new DealSubjectDirectory({
+            crm: extras.dealReader,
+            products: productMapFromEnv(env["SIX2FIT_PRODUCT_SCOPE_MAP"]),
+            expectedOrgId: req(env, "SIX2FIT_EXPECTED_ORG_ID"),
+            log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
+            prefill: {
+              enabled: env["SIX2FIT_CONSULT_PREFILL_ENABLED"] === "true",
+              windowDays: Math.min(Math.max(Number(env["SIX2FIT_CONSULT_PREFILL_WINDOW_DAYS"]) || 90, 1), 365),
+              limit: Math.min(Math.max(Number(env["SIX2FIT_CONSULT_PREFILL_CANDIDATE_LIMIT"]) || 10, 1), 25),
+            },
+          })
+        : null,
+    ),
     sink: new LocalFileSink(storageDir),
     secret,
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),

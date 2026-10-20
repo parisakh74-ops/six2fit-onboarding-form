@@ -31,7 +31,13 @@ export async function loadBootstrap(signal?: AbortSignal): Promise<OnboardingBoo
     headers: { Accept: "application/json" },
     ...(signal ? { signal } : {}),
   });
-  if (!response.ok) throw new Error("BOOTSTRAP_UNAVAILABLE");
+  if (!response.ok) {
+    // Identifiable, retryable prefill failures (the body carries only a code).
+    const code = await response.json().then((b: { error_code?: unknown }) => (typeof b?.error_code === "string" ? b.error_code : ""), () => "");
+    if (code === "PREFILL_UNAVAILABLE" || code === "PREFILL_CONFIGURATION" || code === "LINK_REVOKED") throw new Error(code);
+    if (code === "INVALID_OR_EXPIRED_SESSION") throw new Error("SESSION_EXPIRED");
+    throw new Error("BOOTSTRAP_UNAVAILABLE");
+  }
   const parsed = bootstrapSchema.safeParse(await response.json());
   if (!parsed.success) throw new Error("BOOTSTRAP_INVALID");
   return parsed.data;
@@ -109,6 +115,7 @@ export async function submitOnboarding(
     body: form,
   });
   if (!response.ok) {
+    if (response.status === 403) throw new Error("LINK_REVOKED");
     if (response.status === 409) throw new Error("SUBMISSION_CONFLICT");
     if (response.status === 401) throw new Error("SESSION_EXPIRED");
     if (response.status === 422) throw new Error("SUBMISSION_INVALID");

@@ -3,9 +3,9 @@ import { StoreError } from "../errors";
 import type { OnboardingStore } from "../ports";
 import { ZohoClient, type ClientDeps } from "./client";
 import { loadCrmConfig } from "./config";
-import { RequestsStore } from "./requests-store";
+import { RequestsStore, type RequestsStoreDeps } from "./requests-store";
 
-type Overrides = Partial<ClientDeps> & { log?: (event: string, fields: Record<string, string | number | boolean>) => void };
+type Overrides = Partial<ClientDeps> & { log?: (event: string, fields: Record<string, string | number | boolean>) => void; documentIdentity?: RequestsStoreDeps["documentIdentity"]; documentIdentityByKey?: RequestsStoreDeps["documentIdentityByKey"] };
 
 /** Builds the raw CRM writer (no ledger). Pure configuration: no network until the first call. */
 export function createRequestsWriter(env: Record<string, string | undefined>, overrides: Overrides = {}): RequestsStore {
@@ -17,7 +17,7 @@ export function createRequestsWriter(env: Record<string, string | undefined>, ov
     now: overrides.now ?? (() => Date.now()),
     sleep: overrides.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
   };
-  return new RequestsStore({ client: new ZohoClient(config, deps), config, now: deps.now, sleep: deps.sleep, ...(overrides.log ? { log: overrides.log } : {}) });
+  return new RequestsStore({ client: new ZohoClient(config, deps), config, now: deps.now, sleep: deps.sleep, ...(overrides.log ? { log: overrides.log } : {}), ...(overrides.documentIdentity ? { documentIdentity: overrides.documentIdentity } : {}), ...(overrides.documentIdentityByKey ? { documentIdentityByKey: overrides.documentIdentityByKey } : {}) });
 }
 
 /** Production composition: CRM writer behind the persistent idempotency ledger (`ledgerDir` must be persistent, outside any web root). */

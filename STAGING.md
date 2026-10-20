@@ -39,12 +39,15 @@ Server-only variables:
 | Variable | Meaning |
 |---|---|
 | `SIX2FIT_STAGING_MODE` | `true` (the API is staging-only; host must contain `onboarding-staging`) |
-| `SIX2FIT_STAGING_TOKEN_SECRET` | >= 32 characters, signs the onboarding links (same secret as the Consultation service issues with) |
+| `SIX2FIT_ONBOARDING_TOKEN_SECRET` | >= 32 random characters, signs the onboarding links. **Onboarding-only: the Consultation service holds no signing secret (O1).** Also used by the internal link-issuer route |
+| `SIX2FIT_ISSUER_CALLER_SECRET` | >= 32 characters, authenticates the CRM Function that calls the link issuer (separate from every other secret) |
+| `SIX2FIT_ACCEPT_CONSULT_HANDOFF` | `true` only for local/staging development: accepts Consultation (v1) hand-off tokens and then also honours the legacy `SIX2FIT_STAGING_TOKEN_SECRET`. **Never set in a production-like deployment; ignored when the store is `crm`** |
+| `SIX2FIT_CONSULT_PREFILL_ENABLED`, `SIX2FIT_CONSULT_PREFILL_WINDOW_DAYS` (default 90), `SIX2FIT_CONSULT_PREFILL_CANDIDATE_LIMIT` (default 10) | Consultation prefill for Deal links (eight keys, first cycle, read-only); needs the Production `Consultation_Submissions` module and read grant |
 | `SIX2FIT_STAGING_STORAGE_DIR` | local development store (plaintext answers/uploads: never Production data) |
 | `SIX2FIT_ONBOARDING_STORE` | `file` (default) or `crm` (Sandbox Requests adapter, explicit) |
 | `SIX2FIT_ONBOARDING_CRM_ENABLED`, `SIX2FIT_ZOHO_*`, `SIX2FIT_ONBOARDING_RAW_FIELD`, `SIX2FIT_ONBOARDING_TRIGGER_AUTOMATIONS`, `SIX2FIT_ONBOARDING_SET_NEW_RECORD_FLAG`, `SIX2FIT_ONBOARDING_LEDGER_DIR` | see `src/server/onboarding/crm/config.ts`; CRM mode refuses to start without the complete-answers field and a Sandbox organisation |
 
-Links: v1 = Consultation hand-off (`consult_submission_id`); v2 = Deal-bound link (`deal_id`, `jti`): the issuer of v2 links is an open product decision.
+Links: v1 = Consultation hand-off (`consult_submission_id`), **refused by default**; v2 = Deal-bound link (`deal_id`, `jti`): the issuer of v2 links is an open product decision.
 The `crm` store must not be enabled until the decisions listed in `changes/proposed/FORMS-CRM-001_ONBOARDING_STATE_AND_CONTRACT.md` (section 3) are made and a bounded Sandbox test plan is approved.
 
 Never put OAuth client secrets, refresh tokens, signing keys, or Zoho org credentials in `VITE_*` values.

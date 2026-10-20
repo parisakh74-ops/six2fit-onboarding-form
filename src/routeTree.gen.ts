@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiInternalOnboardingLinkRouteImport } from './routes/api/internal/onboarding-link'
 import { Route as ApiOnboardingBootstrapRouteImport } from './routes/api/onboarding/bootstrap'
 import { Route as ApiOnboardingSubmitRouteImport } from './routes/api/onboarding/submit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiInternalOnboardingLinkRoute = ApiInternalOnboardingLinkRouteImport.update({
+  id: '/api/internal/onboarding-link',
+  path: '/api/internal/onboarding-link',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOnboardingBootstrapRoute = ApiOnboardingBootstrapRouteImport.update({
@@ -31,30 +37,34 @@ const ApiOnboardingSubmitRoute = ApiOnboardingSubmitRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/internal/onboarding-link': typeof ApiInternalOnboardingLinkRoute
   '/api/onboarding/bootstrap': typeof ApiOnboardingBootstrapRoute
   '/api/onboarding/submit': typeof ApiOnboardingSubmitRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/internal/onboarding-link': typeof ApiInternalOnboardingLinkRoute
   '/api/onboarding/bootstrap': typeof ApiOnboardingBootstrapRoute
   '/api/onboarding/submit': typeof ApiOnboardingSubmitRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/internal/onboarding-link': typeof ApiInternalOnboardingLinkRoute
   '/api/onboarding/bootstrap': typeof ApiOnboardingBootstrapRoute
   '/api/onboarding/submit': typeof ApiOnboardingSubmitRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
+  fullPaths: '/' | '/api/internal/onboarding-link' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
-  id: '__root__' | '/' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
+  to: '/' | '/api/internal/onboarding-link' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
+  id: '__root__' | '/' | '/api/internal/onboarding-link' | '/api/onboarding/bootstrap' | '/api/onboarding/submit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiInternalOnboardingLinkRoute: typeof ApiInternalOnboardingLinkRoute
   ApiOnboardingBootstrapRoute: typeof ApiOnboardingBootstrapRoute
   ApiOnboardingSubmitRoute: typeof ApiOnboardingSubmitRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/onboarding-link': {
+      id: '/api/internal/onboarding-link'
+      path: '/api/internal/onboarding-link'
+      fullPath: '/api/internal/onboarding-link'
+      preLoaderRoute: typeof ApiInternalOnboardingLinkRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/onboarding/bootstrap': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiInternalOnboardingLinkRoute: ApiInternalOnboardingLinkRoute,
   ApiOnboardingBootstrapRoute: ApiOnboardingBootstrapRoute,
   ApiOnboardingSubmitRoute: ApiOnboardingSubmitRoute,
 }

@@ -16,6 +16,16 @@ import { StoreError } from "../errors";
  *   SIX2FIT_ONBOARDING_RAW_FIELD          API name of the large-text field that receives the COMPLETE answers (REQUIRED:
  *                                         the Requests module has no such field today; creating it is a schema decision)
  *   SIX2FIT_ONBOARDING_RAW_MAX_CHARS      capacity of that field (default 31000)
+ *   SIX2FIT_ONBOARDING_CRM_PERSISTENCE    "raw-field" (default: complete answers in RAW_FIELD), "workdrive-ref" or "workdrive-key".
+ *                                         "workdrive-key" (MVP): the complete answers and files live ONLY in WorkDrive; the CRM Request
+ *                                         carries no raw JSON and no document reference. The link is the existing `uniqueformkey`
+ *                                         (= WorkDrive submission folder name). RAW_FIELD and DOC_REF_FIELD must both be unset, and
+ *                                         SIX2FIT_WORKDRIVE_ROOT_FOLDER_ID / _NAME (the approved root Team Folder) are REQUIRED.
+ *                                         In "workdrive-ref" mode: the complete
+ *                                         answers live in WorkDrive and the CRM stores ONLY the private WorkDrive permalink of
+ *                                         the canonical JSON document. RAW_FIELD must then be unset (no raw JSON reaches the CRM).
+ *   SIX2FIT_ONBOARDING_DOC_REF_FIELD      API name of the Requests field that receives the permalink. REQUIRED in "workdrive-ref"
+ *                                         mode, deliberately has NO default: the field choice is a Product decision.
  *   SIX2FIT_ONBOARDING_TRIGGER_AUTOMATIONS "true" lets CRM workflows run on the new Request (default: suppressed with
  *                                         `trigger: []`; the Sandbox still has active rules that point at Production Flow)
  *   SIX2FIT_ONBOARDING_SET_NEW_RECORD_FLAG "true" sets Is_New_Record_Created (gate of `RequestOnCreateUpdate`); default off
@@ -32,7 +42,14 @@ export type CrmConfig = {
   clientSecret: string;
   refreshToken: string;
   moduleApiName: string;
-  rawField: string;
+  persistence: "raw-field" | "workdrive-ref" | "workdrive-key";
+  /** Raw-field mode only. */
+  rawField: string | undefined;
+  /** WorkDrive-reference mode only. */
+  docRefField: string | undefined;
+  /** WorkDrive persistence modes: the one approved root Team Folder (id and expected title). */
+  workdriveRootFolderId: string | undefined;
+  workdriveRootFolderName: string | undefined;
   maxRawPayloadChars: number;
   triggerAutomations: boolean;
   setNewRecordFlag: boolean;
@@ -62,6 +79,16 @@ const positiveInt = (value: string | undefined, fallback: number, min: number, m
   return n;
 };
 
+/** Fields that must never receive the document reference: core keys of this adapter and fields owned by other integrations. */
+const DOC_REF_FIELD_DENYLIST = new Set(["id", "Name", "Owner", "uniqueformkey", "Deal", "Contact", "Product", "Request_Status", "Submission_Id", "Form_Version", "Submitted_At", "Onboarding_Scope", "Form_Complete", "Form_Completion_Date", "Is_New_Record_Created", "Is_First_Request", "Product_Related_To", "Email", "Document_Reference", "Medical_Documents", "Onboarding_Raw_JSON"]);
+
+/** Returns why a field name cannot hold the document reference, or null. Mapped structured fields are checked in `requests-mapping`. */
+export function docRefFieldProblem(name: string): string | null {
+  if (DOC_REF_FIELD_DENYLIST.has(name)) return "reserved by this adapter or by another integration";
+  if (/^Trello_/i.test(name)) return "belongs to the Trello integration";
+  return null;
+}
+
 export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfig {
   const get = (k: string) => (env[k] ?? "").trim();
   if (get("SIX2FIT_ONBOARDING_CRM_ENABLED") !== "true") notConfigured("CRM mode is not enabled");
@@ -82,8 +109,36 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
   const clientSecret = get("SIX2FIT_ZOHO_CLIENT_SECRET");
   const refreshToken = get("SIX2FIT_ZOHO_REFRESH_TOKEN");
   if (!clientId || !clientSecret || !refreshToken) notConfigured("credentials missing");
-  const rawField = get("SIX2FIT_ONBOARDING_RAW_FIELD");
-  if (!/^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(rawField)) notConfigured("complete-answers field is not configured (COMPLETE_PERSISTENCE_UNAVAILABLE)");
+  const modeRaw = get("SIX2FIT_ONBOARDING_CRM_PERSISTENCE") || "raw-field";
+  if (modeRaw !== "raw-field" && modeRaw !== "workdrive-ref" && modeRaw !== "workdrive-key") notConfigured("unknown persistence mode");
+  const mode: "raw-field" | "workdrive-ref" | "workdrive-key" = modeRaw === "workdrive-ref" ? "workdrive-ref" : modeRaw === "workdrive-key" ? "workdrive-key" : "raw-field";
+  const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,60}$/;
+  let rawField: string | undefined;
+  let docRefField: string | undefined;
+  if (mode === "raw-field") {
+    rawField = get("SIX2FIT_ONBOARDING_RAW_FIELD");
+    if (!FIELD_NAME.test(rawField)) notConfigured("complete-answers field is not configured (COMPLETE_PERSISTENCE_UNAVAILABLE)");
+    if (get("SIX2FIT_ONBOARDING_DOC_REF_FIELD") !== "") notConfigured("document reference field is only valid in workdrive-ref mode");
+  } else if (mode === "workdrive-key") {
+    // No CRM field is configured or written for the document: the correlation key is `uniqueformkey` itself.
+    if (get("SIX2FIT_ONBOARDING_RAW_FIELD") !== "") notConfigured("raw answers field must be unset in workdrive-key mode");
+    if (get("SIX2FIT_ONBOARDING_DOC_REF_FIELD") !== "") notConfigured("document reference field must be unset in workdrive-key mode");
+  } else {
+    docRefField = get("SIX2FIT_ONBOARDING_DOC_REF_FIELD");
+    if (!FIELD_NAME.test(docRefField)) notConfigured("document reference field is not configured (DOC_REF_FIELD_REQUIRED)");
+    const reason = docRefFieldProblem(docRefField);
+    if (reason) notConfigured(`document reference field is not usable (${reason})`);
+    // Never let the complete answers reach the CRM in this mode.
+    if (get("SIX2FIT_ONBOARDING_RAW_FIELD") !== "") notConfigured("raw answers field must be unset in workdrive-ref mode");
+  }
+  let workdriveRootFolderId: string | undefined;
+  let workdriveRootFolderName: string | undefined;
+  if (mode === "workdrive-key") {
+    workdriveRootFolderId = get("SIX2FIT_WORKDRIVE_ROOT_FOLDER_ID");
+    workdriveRootFolderName = get("SIX2FIT_WORKDRIVE_ROOT_FOLDER_NAME");
+    if (!/^[A-Za-z0-9]{20,64}$/.test(workdriveRootFolderId)) notConfigured("WorkDrive root folder id is not configured (WORKDRIVE_ROOT_REQUIRED)");
+    if (workdriveRootFolderName === "" || workdriveRootFolderName.length > 100) notConfigured("WorkDrive root folder name is not configured (WORKDRIVE_ROOT_REQUIRED)");
+  }
 
   return {
     environment: "sandbox",
@@ -96,7 +151,11 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
     clientSecret,
     refreshToken,
     moduleApiName: REQUESTS_MODULE,
+    persistence: mode,
     rawField,
+    docRefField,
+    workdriveRootFolderId,
+    workdriveRootFolderName,
     maxRawPayloadChars: positiveInt(env["SIX2FIT_ONBOARDING_RAW_MAX_CHARS"], RAW_FIELD_DEFAULT_CAPACITY, 1000, 1_000_000),
     triggerAutomations: get("SIX2FIT_ONBOARDING_TRIGGER_AUTOMATIONS") === "true",
     setNewRecordFlag: get("SIX2FIT_ONBOARDING_SET_NEW_RECORD_FLAG") === "true",

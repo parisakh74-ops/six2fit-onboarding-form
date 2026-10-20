@@ -37,6 +37,7 @@ function make(over: { store?: OnboardingStore; directory?: SubjectDirectory; log
     directory: over.directory ?? new Directory(),
     sink: new LocalFileSink(dir),
     secret: SECRET,
+    acceptConsultHandoff: true,
     now: () => NOW_MS,
     log: (event, fields) => logs.push({ event, ...fields }),
   });
