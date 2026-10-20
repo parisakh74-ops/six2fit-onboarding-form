@@ -52,6 +52,8 @@ Server-only variables:
 | `SIX2FIT_OPS_CALLER_SECRET` | >= 32 characters, signs readiness / reconciliation calls (`docs/onboarding/OPERATIONS_RUNBOOK.md`) |
 | `SIX2FIT_EXPECTED_ORG_ID`, `SIX2FIT_PRODUCT_SCOPE_MAP`, `SIX2FIT_FORM_BASE_URL`, `SIX2FIT_LINK_TTL_SECONDS` | Deal directory / link issuer |
 | `SIX2FIT_WOO_WEBHOOK_SECRET`, `SIX2FIT_WOO_BASE_URL`, `SIX2FIT_WOO_CONSUMER_KEY` / `_CONSUMER_SECRET`, `SIX2FIT_PAYMENT_GATEWAYS` | payment-driven first invitation; **inert without a delivery channel** (`docs/onboarding/PAYMENT_INVITATION_ONB_PAY_01.md`) |
+| `SIX2FIT_ONBOARDING_REQUESTS_MODULE` | API name of the module displayed as "Requests" (default `Requests`; the Sandbox UI shows `CustomModule3`: confirm with `GET /settings/modules`) |
+| `SIX2FIT_EMAIL_DELIVERY_MODE` (+ `SIX2FIT_EMAIL_*`, `SIX2FIT_ZOHO_MAILER_*`) | first-invitation e-mail, **OFF by default**; see `docs/onboarding/EMAIL_DELIVERY_ONB_DELIVERY_01.md` |
 
 Links: v1 = Consultation hand-off (`consult_submission_id`), **refused by default**; v2 = Deal-bound link (`deal_id`, `jti`): the issuer of v2 links is an open product decision.
 The `crm` store must not be enabled until the decisions listed in `changes/proposed/FORMS-CRM-001_ONBOARDING_STATE_AND_CONTRACT.md` (section 3) are made and a bounded Sandbox test plan is approved.
