@@ -8,15 +8,19 @@ import type { WdItem } from "./api";
 import { HttpWorkDriveApi } from "./http-api";
 import { WorkDriveSubmissionStorage, buildDocument } from "./storage";
 
-const LIVE = process.env["S2F_LIVE_QA"] === "1" && Boolean(process.env["S2F_WD_TOKEN"]);
-const ROOT = "76a80aad8e6f6764944278234c783ad4a4f95";
-const ROOT_NAME = "S2F-ONBOARDING-TEST";
-const BASE = "https://www.zohoapis.com/workdrive/api/v1";
+// The approved isolated test folder comes from the environment (never hardcoded): id, exact title and API base of its data centre.
+const ROOT = process.env["S2F_WD_ROOT_ID"] ?? "";
+const ROOT_NAME = process.env["S2F_WD_ROOT_NAME"] ?? "";
+const BASE = process.env["S2F_WD_API_BASE"] ?? "";
+const LIVE = process.env["S2F_LIVE_QA"] === "1" && Boolean(process.env["S2F_WD_TOKEN"]) && ROOT.length >= 20 && ROOT_NAME !== "" && /^https:\/\/www\.zohoapis\.[a-z.]+\/workdrive\/api\/v1$/.test(BASE) && /^S2F-[A-Z0-9-]*TEST/.test(ROOT_NAME);
 
 describe.skipIf(!LIVE)("WorkDrive adapter LIVE QA (sequential, synthetic)", () => {
   it("S1-S6", async () => {
     const calls: string[] = [];
+    const MAX_WRITES = 8; // hard cap on POSTs (folder creation + uploads) for the whole run
+    let writes = 0;
     const recFetch = async (url: string, init?: { method?: string }) => {
+      if ((init?.method ?? "GET") === "POST" && (writes += 1) > MAX_WRITES) throw new Error("STOP: write budget exceeded");
       const res = await fetch(url, init as RequestInit);
       calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname.replace(/\/[0-9a-z]{30,}/g, "/<id>")} -> ${res.status}`);
       return res;

@@ -9,10 +9,11 @@ import { WdHttpError, type WdItem, type WorkDriveApi } from "./api";
 import { HttpWorkDriveApi } from "./http-api";
 import { WorkDriveSubmissionStorage, buildDocument } from "./storage";
 
-const LIVE = process.env["S2F_LIVE_MULTIFILE"] === "1" && Boolean(process.env["S2F_WD_TOKEN"]);
-const ROOT = "76a80aad8e6f6764944278234c783ad4a4f95";
-const ROOT_NAME = "S2F-ONBOARDING-TEST";
-const BASE = "https://www.zohoapis.com/workdrive/api/v1";
+// The approved isolated test folder comes from the environment (never hardcoded): id, exact title and API base of its data centre.
+const ROOT = process.env["S2F_WD_ROOT_ID"] ?? "";
+const ROOT_NAME = process.env["S2F_WD_ROOT_NAME"] ?? "";
+const BASE = process.env["S2F_WD_API_BASE"] ?? "";
+const LIVE = process.env["S2F_LIVE_MULTIFILE"] === "1" && Boolean(process.env["S2F_WD_TOKEN"]) && ROOT.length >= 20 && ROOT_NAME !== "" && /^https:\/\/www\.zohoapis\.[a-z.]+\/workdrive\/api\/v1$/.test(BASE) && /^S2F-[A-Z0-9-]*TEST/.test(ROOT_NAME);
 const MAX_WRITES = 10; // folder creations + upload calls, injected ones included
 
 const synthetic = (size: number, seed: number): Uint8Array => {
