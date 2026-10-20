@@ -80,3 +80,25 @@ describe("ConsultHandoffDirectory.resolve: phone prefill", () => {
     expect((await resolve())?.prefill).not.toHaveProperty("ON-06.n");
   });
 });
+
+// DEF-05 contract (Consultation side): these are the E.164 values Consultation now stores for the golden inputs in
+// its phone-normalization.test.ts. Onboarding must turn each back into a national number it accepts (^\d{7,13}$),
+// and calling code + national number must reproduce the stored value exactly (no digit lost or duplicated).
+describe("DEF-05 handoff: Consultation E.164 values round-trip through Onboarding", () => {
+  const GOLDEN: [name: string, dial: string, e164: string][] = [
+    ["Canada/US", "+1", "+14165550100"],
+    ["Iran", "+98", "+989123456789"],
+    ["Iran, national starting with 98", "+98", "+989812345678"],
+    ["India, national starting with 91", "+91", "+919123456789"],
+    ["Kazakhstan/Russia, national starting with 7", "+7", "+77012345678"],
+    ["UAE", "+971", "+971501234567"],
+    ["UAE, national starting with 97", "+971", "+971971234567"],
+    ["Italy landline (0 is part of the number)", "+39", "+390612345678"],
+  ];
+
+  it.each(GOLDEN)("%s", (_name, dial, e164) => {
+    const national = nationalPhoneFromPrefill(e164, dial);
+    expect(national).toMatch(/^\d{7,13}$/);
+    expect(`${dial}${national}`).toBe(e164);
+  });
+});

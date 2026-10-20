@@ -70,3 +70,11 @@ Mechanism: a normal Vite asset import (same as the Onboarding project's existing
 - Black logotype is unreadable if a dark background is ever used; switch to the white variant then.
 - A tab-bar favicon in a dark browser theme (section 3).
 - The Onboarding build already bundles other images (`assets/back-*.png` is published), so no build-script change is expected.
+
+## 9. PNG favicon fallback (amendment, 2026-10-18)
+
+PM-approved. A second `<link rel="icon" type="image/png" sizes="64x64">` follows the SVG link in `src/routes/__root.tsx` for browsers with limited SVG favicon support (Safari). File: `src/assets/brand/6toFit_logo_Black_1_64.png` (64x64 RGBA, 1,763 B, SHA-256 `c6b21a6afa4a72fc0a2e6e8d052a7440d53ddf76beb111bf88c8e5b028d48aea`, identical in both projects).
+
+Source: only the official `6toFit_logo_Black_1.svg` path, drawn once on a transparent 64x64 canvas with the same scale on both axes (mark 40x60 px, ratio 190:285), centered, fill `#101010`, no background; exported as PNG from a browser canvas. Geometry, proportions and colour are not modified. The SVG favicon is kept.
+
+Bundling: imported like the logotype. At 1.7 KB it is below the Vite inline limit (4,096 B), so a build embeds it as a `data:image/png;base64,` URI in the HTML head (no separate file, no external hosting, nothing extra for the `assets/` copy in SOP D.4); if it ever grows past the limit Vite emits a hashed file under `assets/`, which the same step publishes. Not verified by a real build (none was run). Tests in `src/test/brand-assets.test.tsx`: SVG and PNG links valid, PNG hash, structure, colour, centering and proportions, no `__l5e` or root-level favicon reference. Regenerate only from the official SVG with the same procedure.
