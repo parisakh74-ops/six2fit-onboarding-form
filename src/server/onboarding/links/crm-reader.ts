@@ -122,11 +122,13 @@ export class ZohoCrmReader implements CrmDealReader {
    * Deals whose `Transaction` (the WooCommerce order-pay URL written by the order function) names this order. The CRM has no
    * dedicated order-id field yet (CRM-CHG-004 is a proposal), so the URL is matched exactly client-side; the URL (which carries an
    * order key) is read in memory only and never logged or stored. Several Deals can claim one order (legacy re-fire): the caller decides.
+   * `Transaction` is a WEBSITE field: Zoho's search supports only equals / not_equal / starts_with / in for it (`contains` is not
+   * listed); the documented `equals` behaves like "contains", and the exact URL is re-checked client-side below.
    */
   async findDealIdsByOrder(orderId: string): Promise<string[]> {
     if (!/^[1-9]\d{0,11}$/.test(orderId)) return [];
     const needle = `/order-pay/${orderId}/`;
-    const rows = this.list(await this.get("/Deals/search", { criteria: `(Transaction:contains:${crit(needle)})`, fields: "id,Transaction", per_page: "50" }));
+    const rows = this.list(await this.get("/Deals/search", { criteria: `(Transaction:equals:${crit(needle)})`, fields: "id,Transaction", per_page: "50" }));
     return [...new Set(rows.filter((r) => typeof r["Transaction"] === "string" && (r["Transaction"] as string).includes(needle)).map((r) => (typeof r["id"] === "string" && ID.test(r["id"]) ? r["id"] : "")).filter(Boolean))];
   }
 
@@ -160,7 +162,9 @@ export class ZohoCrmReader implements CrmDealReader {
     const targets: Array<[string, readonly string[]]> = Object.entries(READER_SCHEMA).map(([m, f]) => [m === "Requests" ? this.requestsModule : m, f]);
     if (includeConsultation) targets.push([CONSULTATION_MODULE, CONSULTATION_SCHEMA]);
     for (const [module, fields] of targets) {
-      const res = await this.get("/settings/fields", { module });
+      // Without `type=all` Zoho returns only USED fields: a field that exists but sits on no layout (verified live: Deals.Form_Completion_Date,
+      // Contacts.Email_Opt_Out; Requests 243 used vs 322 total) would be reported missing although the API can read and write it.
+      const res = await this.get("/settings/fields", { module, type: "all" });
       const j = res.json;
       if (res.status !== 200 || j === INVALID || !isObj(j) || !Array.isArray(j["fields"])) {
         missing.push(`${module}:*`);

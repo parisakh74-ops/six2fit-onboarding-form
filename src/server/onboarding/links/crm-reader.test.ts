@@ -122,12 +122,38 @@ describe("T05 CRM reader", () => {
     expect(seen.some((c) => c.includes("a\\,b\\(c\\)@example.invalid"))).toBe(true);
   });
 
-  it("schema verification names missing fields and never passes silently", async () => {
+  it("schema verification asks for ALL fields (not only the used ones), names missing fields and never passes silently", async () => {
     const fieldsOf = (m: string) => (m === "Deals" ? READER_SCHEMA["Deals"]! : m === "Contacts" ? READER_SCHEMA["Contacts"]! : m === "Requests" ? READER_SCHEMA["Requests"]! : CONSULTATION_SCHEMA);
-    const full = crm([(u) => (u.pathname === "/crm/v8/settings/fields" ? J(200, { fields: fieldsOf(u.searchParams.get("module") ?? "").map((api_name) => ({ api_name })) }) : null)]);
+    const queries: string[] = [];
+    const answer = (drop: string[]) => (u: URL) => {
+      if (u.pathname !== "/crm/v8/settings/fields") return null;
+      queries.push(u.search);
+      // like Zoho: without type=all the unused fields are NOT returned
+      const unused = u.searchParams.get("type") === "all" ? [] : ["Form_Completion_Date", "Persian_Form_Link"];
+      return J(200, { fields: fieldsOf(u.searchParams.get("module") ?? "").filter((f) => !drop.includes(f) && !unused.includes(f)).map((api_name) => ({ api_name })) });
+    };
+    const full = crm([answer([])]);
     expect(await full.reader.verifySchema(true)).toEqual({ ok: true, missing: [] });
-    const partial = crm([(u) => (u.pathname === "/crm/v8/settings/fields" ? J(200, { fields: fieldsOf(u.searchParams.get("module") ?? "").filter((f) => f !== "Product").map((api_name) => ({ api_name })) }) : null)]);
+    expect(queries.every((q) => q.includes("type=all"))).toBe(true);
+    const partial = crm([answer(["Product"])]);
     expect(await partial.reader.verifySchema(false)).toEqual({ ok: false, missing: ["Deals.Product"] });
+  });
+
+  it("finds Deals of an order with `equals` on the website field (not the unsupported `contains`) and re-checks the exact URL", async () => {
+    const seen: string[] = [];
+    const { reader } = crm([
+      (u) => {
+        if (u.pathname !== "/crm/v8/Deals/search") return null;
+        seen.push(u.searchParams.get("criteria") ?? "");
+        return J(200, { data: [
+          { id: "6223361000127220003", Transaction: "https://shop.example.invalid/checkout/order-pay/17563/?pay_for_order=true&key=wc_order_synthetic" },
+          { id: "6223361000127220004", Transaction: "https://shop.example.invalid/checkout/order-pay/175630/?pay_for_order=true" },
+        ] });
+      },
+    ]);
+    expect(await reader.findDealIdsByOrder("17563")).toEqual(["6223361000127220003"]);
+    expect(seen).toEqual(["(Transaction:equals:/order-pay/17563/)"]);
+    expect(await reader.findDealIdsByOrder("../1")).toEqual([]);
   });
 
   it("uses a dedicated read-only grant when configured and reports a shared grant otherwise", () => {
