@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import logoSrc from "@/assets/brand/6toFit_logotype_Black_1.svg";
 
 export function Logo() {
   return (
-    <span dir="ltr" aria-label="6toFit" className="select-none font-display text-[20px] font-bold tracking-[-0.04em] text-foreground">
-      6toFit<span className="text-brand">.</span>
-    </span>
+    <img
+      src={logoSrc}
+      alt="6toFit"
+      className="h-6 w-auto select-none sm:h-7"
+      draggable={false}
+    />
   );
 }
 

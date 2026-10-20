@@ -1,0 +1,2 @@
+# Official brand artwork must stay byte-identical: no end-of-line conversion on checkout (core.autocrlf is true on this machine).
+src/assets/brand/*.svg -text
