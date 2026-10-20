@@ -64,6 +64,8 @@ const deps = (): Deps => ({
       directory: new ConsultHandoffDirectory(dir),
       sink: new LocalFileSink(dir),
       secret: SECRET,
+      // O1: the Consultation hand-off is refused by default; this test covers the legacy dev/staging hand-off explicitly.
+      acceptConsultHandoff: true,
       now: () => NOW_MS,
     }),
   }),
