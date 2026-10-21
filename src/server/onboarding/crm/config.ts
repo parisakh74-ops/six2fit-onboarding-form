@@ -1,19 +1,22 @@
 import { StoreError } from "../errors";
-import { dcOfAccountsDomain, dcOfSandboxApiDomain } from "../zoho-dc";
+import { dcOfAccountsDomain, dcOfProductionApiDomain, dcOfSandboxApiDomain } from "../zoho-dc";
 
 /**
- * Configuration contract of the Zoho CRM Sandbox adapter for the Onboarding `Requests` module (server-side only).
- * CRM mode is OFF unless `SIX2FIT_ONBOARDING_STORE=crm` AND `SIX2FIT_ONBOARDING_CRM_ENABLED=true`. Only the Zoho SANDBOX is
- * supported (organisation zgid + type are verified before the first write); a missing or malformed value fails closed
- * with `NOT_CONFIGURED`. Error messages never contain configuration values.
+ * Configuration contract of the Zoho CRM adapter for the Onboarding `Requests` module (server-side only).
+ * CRM mode is OFF unless `SIX2FIT_ONBOARDING_STORE=crm` AND `SIX2FIT_ONBOARDING_CRM_ENABLED=true`. The Zoho environment is
+ * EXPLICIT (`sandbox` or `production`, no default, never inferred): host, accounts domain, organisation identity and module id
+ * prefix must all match it, and organisation zgid + api id + type are verified before the first write. A missing, malformed or
+ * cross-environment value fails closed with `NOT_CONFIGURED`. Error messages never contain configuration values.
  *
  *   SIX2FIT_ONBOARDING_CRM_ENABLED        "true"
- *   SIX2FIT_ZOHO_ENVIRONMENT              "sandbox"
- *   SIX2FIT_ZOHO_ORG_ZGID / _ORG_API_ID   expected Sandbox organisation (digits)
- *   SIX2FIT_ZOHO_API_DOMAIN               https://sandbox.zohoapis.<dc>
- *   SIX2FIT_ZOHO_ACCOUNTS_DOMAIN          https://accounts.zoho.<dc>
- *   SIX2FIT_ZOHO_MODULE_ID_PREFIX         expected id prefix of the Sandbox org
- *   SIX2FIT_ZOHO_CLIENT_ID / _CLIENT_SECRET / _REFRESH_TOKEN   Sandbox grant only
+ *   SIX2FIT_ZOHO_ENVIRONMENT              "sandbox" | "production" (required)
+ *   SIX2FIT_ZOHO_ORG_ZGID                 expected organisation zgid (digits)
+ *   SIX2FIT_ZOHO_ORG_API_ID               expected organisation API id; REQUIRED in production (must start with the Production prefix),
+ *                                         optional in sandbox (must not)
+ *   SIX2FIT_ZOHO_API_DOMAIN               sandbox: https://sandbox.zohoapis.<dc>   production: https://www.zohoapis.<dc>
+ *   SIX2FIT_ZOHO_ACCOUNTS_DOMAIN          https://accounts.zoho.<dc> (same data centre as the API domain)
+ *   SIX2FIT_ZOHO_MODULE_ID_PREFIX         expected id prefix of the organisation (production: 6067417000...; sandbox: never that)
+ *   SIX2FIT_ZOHO_CLIENT_ID / _CLIENT_SECRET / _REFRESH_TOKEN   grant of the SAME environment only
  *   SIX2FIT_ONBOARDING_RAW_FIELD          API name of the large-text field that receives the COMPLETE answers (REQUIRED:
  *                                         the Requests module has no such field today; creating it is a schema decision)
  *   SIX2FIT_ONBOARDING_RAW_MAX_CHARS      capacity of that field (default 31000)
@@ -33,7 +36,7 @@ import { dcOfAccountsDomain, dcOfSandboxApiDomain } from "../zoho-dc";
  *   SIX2FIT_ZOHO_TIMEOUT_MS / _MAX_ATTEMPTS
  */
 export type CrmConfig = {
-  environment: "sandbox";
+  environment: "sandbox" | "production";
   orgZgid: string;
   orgApiId: string | undefined;
   apiDomain: string;
@@ -90,22 +93,32 @@ export function docRefFieldProblem(name: string): string | null {
 export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfig {
   const get = (k: string) => (env[k] ?? "").trim();
   if (get("SIX2FIT_ONBOARDING_CRM_ENABLED") !== "true") notConfigured("CRM mode is not enabled");
-  if (get("SIX2FIT_ZOHO_ENVIRONMENT").toLowerCase() !== "sandbox") notConfigured("only the sandbox environment is supported");
+  // The environment is ALWAYS explicit: never inferred from a token, a host name or an id prefix, and there is no default.
+  const envRaw = get("SIX2FIT_ZOHO_ENVIRONMENT").toLowerCase();
+  if (envRaw !== "sandbox" && envRaw !== "production") notConfigured("SIX2FIT_ZOHO_ENVIRONMENT must be explicitly 'sandbox' or 'production'");
+  const environment: "sandbox" | "production" = envRaw === "production" ? "production" : "sandbox";
+  const production = environment === "production";
   const orgZgid = get("SIX2FIT_ZOHO_ORG_ZGID");
   if (!/^\d{6,20}$/.test(orgZgid)) notConfigured("organisation zgid missing or malformed");
   const orgApiIdRaw = get("SIX2FIT_ZOHO_ORG_API_ID");
   if (orgApiIdRaw !== "" && !/^\d{6,25}$/.test(orgApiIdRaw)) notConfigured("organisation api id malformed");
+  // Production: the organisation API id is mandatory (a second, independent identity pin) and carries the Production prefix;
+  // Sandbox: it must not carry the Production prefix.
+  if (production && orgApiIdRaw === "") notConfigured("organisation api id is required in production");
+  if (orgApiIdRaw !== "" && orgApiIdRaw.startsWith(PRODUCTION_ID_PREFIX) !== production) notConfigured("organisation api id does not belong to the configured environment");
   const apiDomain = get("SIX2FIT_ZOHO_API_DOMAIN").replace(/\/+$/, "");
-  const apiDc = dcOfSandboxApiDomain(apiDomain);
-  if (!apiDc) notConfigured("api domain must be a Zoho sandbox domain");
+  const apiDc = production ? dcOfProductionApiDomain(apiDomain) : dcOfSandboxApiDomain(apiDomain);
+  if (!apiDc) notConfigured(production ? "api domain must be a Zoho production domain (https://www.zohoapis.<dc>)" : "api domain must be a Zoho sandbox domain");
   const accountsDomain = get("SIX2FIT_ZOHO_ACCOUNTS_DOMAIN").replace(/\/+$/, "");
   const accountsDc = dcOfAccountsDomain(accountsDomain);
   if (!accountsDc) notConfigured("accounts domain missing or invalid");
   // A token request must never go to a different data centre than the API it authorises (credentials would leave the DC).
   if (apiDc !== accountsDc) notConfigured("accounts and api domains belong to different data centres");
   const moduleIdPrefix = get("SIX2FIT_ZOHO_MODULE_ID_PREFIX");
-  if (!/^\d{6,20}$/.test(moduleIdPrefix) || moduleIdPrefix.startsWith(PRODUCTION_ID_PREFIX)) {
-    notConfigured("expected sandbox id prefix missing or refers to Production");
+  if (!/^\d{6,20}$/.test(moduleIdPrefix)) notConfigured("expected module id prefix missing or malformed");
+  // Sandbox must never carry the Production prefix; Production must carry exactly the Production organisation's prefix.
+  if (production ? !moduleIdPrefix.startsWith(PRODUCTION_ID_PREFIX) : moduleIdPrefix.startsWith(PRODUCTION_ID_PREFIX)) {
+    notConfigured(production ? "expected id prefix is not the Production prefix" : "expected sandbox id prefix refers to Production");
   }
   const clientId = get("SIX2FIT_ZOHO_CLIENT_ID");
   const clientSecret = get("SIX2FIT_ZOHO_CLIENT_SECRET");
@@ -149,7 +162,7 @@ export function loadCrmConfig(env: Record<string, string | undefined>): CrmConfi
   }
 
   return {
-    environment: "sandbox",
+    environment,
     orgZgid,
     orgApiId: orgApiIdRaw === "" ? undefined : orgApiIdRaw,
     apiDomain,

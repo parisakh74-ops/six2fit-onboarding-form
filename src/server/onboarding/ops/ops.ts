@@ -98,7 +98,9 @@ export async function runReadiness(rt: Runtime, env: Record<string, string | und
     add({ name: "crm_store", status: "fail", code: "STORE_NOT_CRM" });
     return { ok: false, persistence: "file", checks };
   }
-  add({ name: "environment_isolation", status: crm.config.environment === "sandbox" && !crm.config.moduleIdPrefix.startsWith("6067417000") ? "pass" : "fail", code: "SANDBOX_ONLY" });
+  // The configured environment and the id prefix must agree (sandbox never carries the Production prefix, production always does).
+  add({ name: "environment_isolation", status: crm.config.moduleIdPrefix.startsWith("6067417000") === (crm.config.environment === "production") ? "pass" : "fail", code: "ENVIRONMENT_PREFIX" });
+  if (crm.config.environment === "production") add({ name: "production_mode", status: "warn", code: "PRODUCTION_ENVIRONMENT" });
   add({ name: "expected_org_matches_crm_config", status: (env["SIX2FIT_EXPECTED_ORG_ID"] ?? "").trim() === crm.config.orgZgid ? "pass" : "fail", code: "ORG_ID" });
   // Workflow isolation: the Sandbox still has active rules pointing at the Production Flow app. The writer suppresses workflows
   // (`trigger: []`) unless explicitly told otherwise; that suppression is documented by Zoho but not yet observed in the Sandbox.

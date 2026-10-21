@@ -47,6 +47,8 @@ export function buildEmailDelivery(env: Record<string, string | undefined>, over
   if (!id || !secret || !refresh) bad("mailer grant missing");
   if (refresh === get("SIX2FIT_ZOHO_REFRESH_TOKEN") || refresh === get("SIX2FIT_ZOHO_READER_REFRESH_TOKEN")) bad("the mailer grant must be separate from the writer and reader grants");
   const config = loadCrmConfig({ ...env, SIX2FIT_ZOHO_CLIENT_ID: id, SIX2FIT_ZOHO_CLIENT_SECRET: secret, SIX2FIT_ZOHO_REFRESH_TOKEN: refresh });
+  // Automatic invitations are not approved for Production (Product decision pending): the delivery stays Sandbox-only.
+  if (config.environment !== "sandbox") bad("email delivery is Sandbox-only until a Production rollout is approved");
 
   let origin: string;
   try {

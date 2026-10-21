@@ -39,6 +39,12 @@ export function dcOfSandboxApiDomain(url: string): Dc | null {
   return m ? dcOfKey(m[1] as string) : null;
 }
 
+/** `https://www.zohoapis.<dc>` (the Production CRM API host, no path) -> DC, or null. */
+export function dcOfProductionApiDomain(url: string): Dc | null {
+  const m = new RegExp(`^https://www\\.zohoapis\\.(${(Object.keys(ACCOUNTS) as Dc[]).map(ESC).join("|")})$`).exec(strip(url));
+  return m ? dcOfKey(m[1] as string) : null;
+}
+
 /** `https://www.zohoapis.<dc>/workdrive/api/v1` -> DC, or null. Nothing else is accepted as a WorkDrive API base. */
 export function dcOfWorkDriveApiBase(url: string): Dc | null {
   const m = new RegExp(`^https://www\\.zohoapis\\.(${(Object.keys(ACCOUNTS) as Dc[]).map(ESC).join("|")})/workdrive/api/v1$`).exec(strip(url));

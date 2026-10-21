@@ -53,11 +53,15 @@ const isHttps = (url: string): boolean => {
   }
 };
 
-/** `sandbox.zohoapis.<dc>` and `www.zohoapis.<dc>` of the same data centre `<dc>` (configured host is the sandbox one). */
-const sameDataCentre = (returnedHost: string, configuredSandboxHost: string): boolean => {
-  const m = /^sandbox\.zohoapis\.(.+)$/.exec(configuredSandboxHost);
+/**
+ * Sandbox: the configured `sandbox.zohoapis.<dc>` host or the generic `www.zohoapis.<dc>` of the same data centre (observed for
+ * Sandbox grants). Production: exactly the configured `www.zohoapis.<dc>` host, never a Sandbox host.
+ */
+const sameDataCentre = (returnedHost: string, configuredHost: string, environment: CrmConfig["environment"]): boolean => {
+  if (environment === "production") return /^www\.zohoapis\.[a-z.]+$/.test(configuredHost) && returnedHost === configuredHost;
+  const m = /^sandbox\.zohoapis\.(.+)$/.exec(configuredHost);
   if (!m) return false;
-  return returnedHost === configuredSandboxHost || returnedHost === `www.zohoapis.${m[1]}`;
+  return returnedHost === configuredHost || returnedHost === `www.zohoapis.${m[1]}`;
 };
 
 export class ZohoClient {
@@ -135,7 +139,7 @@ export class ZohoClient {
         // Fail closed: the returned api_domain must be the Sandbox host or the generic host of the SAME data centre
         // (observed: a Sandbox grant returns https://www.zohoapis.<dc>). It is never used for requests; the configured
         // Sandbox host is. Sandbox identity is proven by the organisation zgid + type (verifyEnvironment).
-        if (typeof j.api_domain !== "string" || !isHttps(j.api_domain) || !sameDataCentre(hostOf(j.api_domain), hostOf(this.config.apiDomain))) {
+        if (typeof j.api_domain !== "string" || !isHttps(j.api_domain) || !sameDataCentre(hostOf(j.api_domain), hostOf(this.config.apiDomain), this.config.environment)) {
           throw new StoreError("NOT_CONFIGURED", "token api_domain does not belong to the configured data centre", "ENV_MISMATCH");
         }
         const lifetime = typeof j.expires_in === "number" && j.expires_in > 0 ? j.expires_in : 3600;
@@ -217,8 +221,13 @@ export class ZohoClient {
           throw new StoreError("NOT_CONFIGURED", "organisation api id mismatch", "ENV_MISMATCH");
         }
         // Documented `type` of GET /org: production | sandbox | bigin | developer.
-        if (first?.type !== "sandbox") {
-          throw new StoreError("NOT_CONFIGURED", "organisation is not a sandbox", "ENV_MISMATCH");
+        // The organisation type must equal the explicitly configured environment (never the other way round).
+        if (first?.type !== this.config.environment) {
+          throw new StoreError("NOT_CONFIGURED", `organisation type does not match the configured environment (${this.config.environment})`, "ENV_MISMATCH");
+        }
+        // The organisation api id must also carry the environment's prefix (a second identity check besides the configured pin).
+        if (String(apiId).startsWith(PRODUCTION_ID_PREFIX) !== (this.config.environment === "production")) {
+          throw new StoreError("NOT_CONFIGURED", "organisation api id does not belong to the configured environment", "ENV_MISMATCH");
         }
         // Documented list endpoint (the single-module endpoint is not documented in the v8 pages reviewed).
         const mod = await this.request("GET", "/settings/modules");
@@ -231,8 +240,8 @@ export class ZohoClient {
         if (!m || m.api_name !== this.config.moduleApiName || id === "") {
           throw new StoreError("NOT_CONFIGURED", "module could not be verified", "ENV_UNVERIFIED");
         }
-        if (id.startsWith(PRODUCTION_ID_PREFIX) || !id.startsWith(this.config.moduleIdPrefix)) {
-          throw new StoreError("NOT_CONFIGURED", "module id does not belong to the expected sandbox organisation", "ENV_MISMATCH");
+        if (id.startsWith(PRODUCTION_ID_PREFIX) !== (this.config.environment === "production") || !id.startsWith(this.config.moduleIdPrefix)) {
+          throw new StoreError("NOT_CONFIGURED", "module id does not belong to the expected organisation of the configured environment", "ENV_MISMATCH");
         }
         this.verifiedAt = this.deps.now();
       } catch (e) {
