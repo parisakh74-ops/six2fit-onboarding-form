@@ -14,17 +14,17 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../canonical";
-import { JPEG_HEAD, validAnswers } from "../fixtures";
 import { handleSubmit, runtimeFromEnv, type Runtime } from "../http";
 import { signLinkToken, uniqueFormKey, verifyLinkToken } from "../tokens";
 import { WdHttpError, type WdItem, type WorkDriveApi } from "../workdrive/api";
 import { DOCUMENT_NAME } from "../workdrive/storage";
 import { ZohoClient } from "./client";
 import { loadCrmConfig } from "./config";
+import { LIVE_EMAIL, buildSubmitRequest, liveSubmissionId, syntheticAnswers, syntheticFile } from "./live-fixtures";
 
 const env = process.env as Record<string, string | undefined>;
 const MARK = "S2F-TEST-ONBOARDING-20261021";
-const EMAIL = "s2f-test-onboarding-20261021@s2f-test.example.invalid";
+const EMAIL = LIVE_EMAIL;
 const DEAL = (env["S2F_LIVE_DEAL_ID"] ?? "").trim();
 const PRODUCT = (env["S2F_LIVE_PRODUCT_ID"] ?? "").trim();
 const LIVE =
@@ -129,22 +129,12 @@ describe.skipIf(!LIVE)("LIVE Sandbox + WorkDrive: single-file synthetic submissi
       throw new Error("Request not found by uniqueformkey after 70 s");
     };
 
-    const answers = validAnswers("Combo", { "ON-01": "S2F-TEST Synthetic", "ON-07": EMAIL, "MS-04": undefined, "MS-04.ack": undefined, "MS-07.neck": undefined, "MS-07.shoulder": undefined, "MS-07.chest": undefined, "MS-07.arm_relaxed": undefined, "MS-07.arm_flexed": undefined, "MS-07.thigh": undefined, "MS-07.calf": undefined, "MS-07.wrist": undefined });
-    const fileBytes = new Uint8Array(4096);
-    fileBytes.set(JPEG_HEAD);
-    for (let i = 16; i < fileBytes.length; i += 1) fileBytes[i] = (i * 37 + 11) & 0xff; // deterministic pseudo-image, no real content
+    const answers = syntheticAnswers(EMAIL);
+    const fileBytes = syntheticFile();
     const fileHash = sha256Hex(fileBytes);
 
     const link = (jti: string) => signLinkToken({ v: 2, deal_id: DEAL, jti, scope: "Combo", entitlements: [], exp: Math.floor(Date.now() / 1000) + 24 * 3600, is_first_request: true, product_related_to: MARK }, secret);
-    const request = (token: string, sid: string, over: Record<string, string> = {}) => {
-      const form = new FormData();
-      form.append("form_session_token", token);
-      form.append("submission_id", sid);
-      form.append("verification_state", "{}");
-      for (const [k, v] of Object.entries({ ...answers, ...over })) form.append(`answer:${k}`, v);
-      form.append("file:MS-05.front", new File([fileBytes as BlobPart], "front.jpg", { type: "image/jpeg" }));
-      return new Request("https://onboarding-staging.6tofit.com/api/onboarding/submit", { method: "POST", headers: { "idempotency-key": sid }, body: form });
-    };
+    const request = (token: string, sid: string, over: Record<string, string> = {}) => buildSubmitRequest({ token, submissionId: sid, answers: { ...answers, ...over }, file: fileBytes });
     const folderItems = async (key: string) => {
       const folders = (await wd.api.list(wd.config.rootFolderId)).filter((i) => i.kind === "folder" && i.name === key);
       expect(folders).toHaveLength(1);
@@ -156,7 +146,7 @@ describe.skipIf(!LIVE)("LIVE Sandbox + WorkDrive: single-file synthetic submissi
     const jti = `s2ftest${stamp}A${randomBytes(4).toString("hex")}`;
     const token = link(jti);
     const key = uniqueFormKey(verifyLinkToken(token, secret));
-    const sid = "aaaaaaaa-bbbb-4ccc-8ddd-" + stamp.padStart(12, "0").slice(-12);
+    const sid = liveSubmissionId("A", stamp);
     result["case_A"] = { unique_form_key: key, file_sha256: fileHash };
     const res = await handleSubmit(request(token, sid), { runtime: () => rt });
     const body = (await res.json()) as Record<string, unknown>;
@@ -223,7 +213,7 @@ describe.skipIf(!LIVE)("LIVE Sandbox + WorkDrive: single-file synthetic submissi
       const rt2 = build(guarded);
       const token2 = link(`s2ftest${stamp}C${randomBytes(4).toString("hex")}`);
       const key2 = uniqueFormKey(verifyLinkToken(token2, secret));
-      const sid2 = "cccccccc-bbbb-4ccc-8ddd-" + stamp.padStart(12, "0").slice(-12);
+      const sid2 = liveSubmissionId("C", stamp);
       const postsBefore = crmPosts.length;
       const first = await handleSubmit(request(token2, sid2), { runtime: () => rt2 });
       expect(first.status).toBe(503); // WorkDrive refused: nothing reached the CRM
