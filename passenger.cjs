@@ -3,6 +3,8 @@
 // Matches the file deployed on ShetabanHost (2026-10-11): requires the Nitro `node-middleware` build
 // (`npm run build:shetaban`), which exports `middleware`.
 const { createServer } = require("node:http");
+const { loadPrivateEnv } = require("./load-private-env.cjs");
+loadPrivateEnv();
 
 void import("./.output/server/index.mjs")
   .then(({ middleware }) => {
