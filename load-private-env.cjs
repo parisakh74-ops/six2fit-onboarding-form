@@ -21,6 +21,9 @@ const ALLOWED = [
   "SIX2FIT_WORKDRIVE_REFRESH_TOKEN",
   "SIX2FIT_ONBOARDING_TOKEN_SECRET",
   "SIX2FIT_OPS_CALLER_SECRET",
+  // Not a secret, but JSON with double quotes is mangled by the cPanel SetEnv path (`\"`): write it single-quoted in the private file.
+  "SIX2FIT_PRODUCT_SCOPE_MAP",
+  "SIX2FIT_NOTION_TOKEN", // Notion integration token (test workspace); non-secret Notion settings stay in the host environment
 ];
 
 function loadPrivateEnv(options = {}) {

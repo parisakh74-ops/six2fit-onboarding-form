@@ -15,21 +15,25 @@ import { reconcileSubmissions } from "../workdrive/reconcile";
  */
 export const READINESS_PATH = "/api/internal/onboarding-readiness";
 export const RECONCILE_PATH = "/api/internal/onboarding-reconcile";
+/** Continues every due (pending/partial) Notion sync from the verified WorkDrive document. Signed caller; bounded; no customer data in or out. */
+export const NOTION_RECONCILE_PATH = "/api/internal/notion-reconcile";
 const HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } as const;
 const MAX_BODY = 64 * 1024;
 const MAX_KEYS = 500;
 const KEY = /^onb[12]_[A-Za-z0-9_-]{6,200}$/;
 
-export type OpsKind = "readiness" | "reconcile";
+export type OpsKind = "readiness" | "reconcile" | "notion-reconcile";
 export function opsKindOf(request: Request): OpsKind | null {
   if (request.method !== "POST") return null;
   const u = new URL(request.url);
   if (u.pathname === READINESS_PATH) return "readiness";
   if (u.pathname === RECONCILE_PATH) return "reconcile";
+  if (u.pathname === NOTION_RECONCILE_PATH) return "notion-reconcile";
   if (u.pathname === "/") {
     const a = u.searchParams.get("six2fit_api");
     if (a === "readiness") return "readiness";
     if (a === "reconcile") return "reconcile";
+    if (a === "notion-reconcile") return "notion-reconcile";
   }
   return null;
 }
@@ -45,12 +49,33 @@ export async function handleOps(request: Request, kind: OpsKind, deps: OpsDeps):
   if (Number.isFinite(declared) && declared > MAX_BODY) return plain(413, "PAYLOAD_TOO_LARGE");
   const body = await request.text();
   if (Buffer.byteLength(body, "utf8") > MAX_BODY) return plain(413, "PAYLOAD_TOO_LARGE");
-  const path = kind === "readiness" ? READINESS_PATH : RECONCILE_PATH; // canonical for both spellings
+  const path = kind === "readiness" ? READINESS_PATH : kind === "notion-reconcile" ? NOTION_RECONCILE_PATH : RECONCILE_PATH; // canonical for both spellings
   const ok = verifyIssuerRequest(secret, { timestamp: request.headers.get(TIMESTAMP_HEADER), signature: request.headers.get(SIGNATURE_HEADER), method: request.method, path, body }, (deps.now ?? (() => Date.now()))());
   if (!ok) return plain(401, "UNAUTHORIZED");
   const rt = deps.runtime();
   if (!rt) return plain(503, "STAGING_UNAVAILABLE");
   if (kind === "readiness") return Response.json(await runReadiness(rt, deps.env), { status: 200, headers: HEADERS });
+  if (kind === "notion-reconcile") {
+    if (!rt.notion) return plain(503, "NOTION_NOT_ENABLED");
+    let limit = 20;
+    try {
+      const parsed: unknown = body.trim() === "" ? {} : JSON.parse(body);
+      const l = (parsed as { limit?: unknown }).limit;
+      if (l !== undefined) {
+        if (typeof l !== "number" || !Number.isInteger(l) || l < 1 || l > 50) throw new Error("shape");
+        limit = l;
+      }
+    } catch {
+      return plain(400, "INVALID_REQUEST");
+    }
+    const results = await rt.notion.reconcile(limit);
+    const count = (s: string) => results.filter((r) => r.outcome.status === s).length;
+    // Counts and codes only: no key, page id, name or answer.
+    return Response.json(
+      { processed: results.length, complete: count("complete"), partial: count("partial"), pending: count("pending"), blocked: count("blocked"), busy: count("busy"), codes: [...new Set(results.map((r) => r.outcome.code).filter(Boolean))] },
+      { status: 200, headers: HEADERS },
+    );
+  }
   let keys: string[] = [];
   try {
     const parsed: unknown = body.trim() === "" ? {} : JSON.parse(body);

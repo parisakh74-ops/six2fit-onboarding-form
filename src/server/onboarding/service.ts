@@ -1,6 +1,6 @@
 import { fingerprint, sha256Hex } from "./canonical";
 import { StoreError } from "./errors";
-import type { FileSink, OnboardingStore, SubjectDirectory, StoredFile, SubmissionRecord } from "./ports";
+import type { FileSink, OnboardingStore, SubjectDirectory, StoredFile, SubmissionExtras, SubmissionRecord } from "./ports";
 import { TokenError, subjectKey, uniqueFormKey, verifyLinkToken, type LinkClaims } from "./tokens";
 import { validateSubmission, type FileInput, type Issue } from "./validate";
 
@@ -31,6 +31,13 @@ export type OnboardingServiceDeps = {
   /** Consultation (v1) hand-off tokens are REFUSED unless this is explicitly true (development/staging only; never in production). */
   acceptConsultHandoff?: boolean;
   now?: () => number;
+  /**
+   * Awaited after the submission is PERSISTED (created now, or found already persisted on a replay) and before the success
+   * response. It must durably record the follow-up work (Notion sync) and may make a bounded attempt at it; it can never create a
+   * CRM record or re-run persistence. If it THROWS, nothing durable was recorded: the request answers 503 and the browser's retry
+   * (same submission id) reaches this hook again through the deduplicated path.
+   */
+  afterPersist?: (record: SubmissionRecord, extras: SubmissionExtras | undefined, persistedAt: string) => Promise<void>;
   /** Counters and codes only: never answers, tokens, ids of people or paths. */
   log?: (event: string, fields?: Record<string, string | number | boolean>) => void;
 };
@@ -171,9 +178,26 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
       body: { status: "completed", submission_id: input.submissionId, deduplicated },
     });
 
+    // The record as far as follow-up work needs it (answers, file metadata and bytes held for this request): no sink reference.
+    const followUp = async (persistedAt: string): Promise<void> => {
+      if (!deps.afterPersist) return;
+      const fileBytes: Record<string, Uint8Array> = {};
+      for (const f of files) fileBytes[f.key] = (input.files[f.key] as { bytes: Uint8Array }).bytes;
+      const rec: SubmissionRecord = {
+        subject_key: key, unique_form_key: uniqueFormKey(claims), fingerprint: fp, scope: claims.scope, subject: claims.subject, link_id: claims.jti,
+        entitlements: claims.entitlements, answers: validated.answers, verification_state: verification, files, submitted_at: persistedAt,
+        is_first_request: claims.isFirstRequest, product_related_to: claims.productRelatedTo,
+      };
+      await deps.afterPersist(rec, { fileBytes }, persistedAt);
+    };
+
     try {
       const existing = await deps.store.get(key);
-      if (existing) return existing.fingerprint === fp ? done(ok(true), "onboarding.deduplicated") : done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
+      if (existing) {
+        if (existing.fingerprint !== fp) return done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
+        await followUp(existing.submitted_at);
+        return done(ok(true), "onboarding.deduplicated");
+      }
 
       // Files first (content-addressed, idempotent on retry), so the CRM record can reference them.
       // A deferred sink (WorkDrive) writes them later, under the ledger claim, inside `store.create`: nothing is written here.
@@ -205,9 +229,15 @@ export function createOnboardingService(deps: OnboardingServiceDeps) {
         is_first_request: claims.isFirstRequest,
         product_related_to: claims.productRelatedTo,
       };
-      const created = await deps.store.create(key, record, deps.sink.deferred ? { fileBytes } : undefined);
-      if (created.status === "created") return done(ok(false), "onboarding.created");
-      return created.record.fingerprint === fp ? done(ok(true), "onboarding.deduplicated") : done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
+      const extras = deps.sink.deferred ? { fileBytes } : undefined;
+      const created = await deps.store.create(key, record, extras);
+      if (created.status === "created") {
+        await followUp(created.record.submitted_at || record.submitted_at);
+        return done(ok(false), "onboarding.created");
+      }
+      if (created.record.fingerprint !== fp) return done(err(409, "SUBMISSION_CONFLICT"), "onboarding.conflict");
+      await followUp(created.record.submitted_at);
+      return done(ok(true), "onboarding.deduplicated");
     } catch (e) {
       return failure(e, startedAt);
     }

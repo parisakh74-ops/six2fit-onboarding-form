@@ -38,6 +38,8 @@ export type ConsultationCandidate = {
 export interface CrmDealReader {
   getDeal(dealId: string): Promise<DealView | null>;
   getContact(contactId: string): Promise<ContactView | null>;
+  /** Product.Fitness (Normal | VIP | "VIP - Cellulite") of a Product; `null` = none. Read-only; throws `CrmReadError` when it cannot be read. */
+  getProductFitness?(productId: string): Promise<string | null>;
   /** True when the Contact already has at least one Request (mirrors the legacy `isFirstReq` rule). */
   hasPriorRequests(contactId: string): Promise<boolean>;
   /** Prefill support (all optional: a reader without them cannot serve prefill). Read-only, bounded, explicit field list. */

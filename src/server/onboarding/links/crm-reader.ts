@@ -97,6 +97,16 @@ export class ZohoCrmReader implements CrmDealReader {
     };
   }
 
+  /** Product.Fitness only (`GET /Products/{id}?fields=id,Fitness`); needs the read scope for Products. */
+  async getProductFitness(productId: string): Promise<string | null> {
+    if (!ID.test(productId)) return null;
+    const rows = this.list(await this.get(`/Products/${productId}`, { fields: "id,Fitness" }));
+    if (rows.length === 0) return null;
+    if (rows.length > 1) throw new CrmReadError("UNAVAILABLE");
+    const r = rows[0] as Record<string, unknown>;
+    return r["id"] === productId ? str(r["Fitness"]) : null;
+  }
+
   async getContact(contactId: string): Promise<ContactView | null> {
     if (!ID.test(contactId)) return null;
     const rows = this.list(await this.get(`/Contacts/${contactId}`, { fields: "id,Email,Phone,Mobile" }));

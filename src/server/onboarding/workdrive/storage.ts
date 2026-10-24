@@ -1,6 +1,7 @@
 import { canonicalJson, fingerprint, sha256Hex } from "../canonical";
 import { StoreError } from "../errors";
 import type { CreateResult, CrmWriter, FileSink, StoredFile, StoredRef, SubmissionExtras, SubmissionRecord } from "../ports";
+import type { Subject } from "../tokens";
 import { WdHttpError, type WdItem, type WorkDriveApi } from "./api";
 
 export const DOCUMENT_NAME = "submission.v1.json";
@@ -195,6 +196,45 @@ export class WorkDriveSubmissionStorage {
       if (doc.name !== DOCUMENT_NAME || doc.parent_id !== folderId) throw stageError("CORRUPT", "WD_AMBIGUOUS_FILES", "stored document is not the expected item");
       const identity = await this.verifyDocumentContent(doc.id, uniqueFormKey);
       return { ...identity, folderId, documentId: doc.id };
+    } catch (e) {
+      throw mapWd(e);
+    }
+  }
+
+  /**
+   * Reads back a staged submission for the Notion sync (reconciliation). The canonical document is first verified by
+   * `readDocumentIdentityByKey` (fingerprint recomputed from its own content); file bytes are re-checked against the recorded
+   * SHA-256 and size by the caller. Read-only.
+   */
+  async readStagedSubmission(uniqueFormKey: string): Promise<{
+    submission: { unique_form_key: string; subject: Subject; scope: string; entitlements: string[]; answers: Record<string, never>; files: StoredFile[]; submitted_at: string; fingerprint: string };
+    folderId: string;
+    download: (ref: string) => Promise<Uint8Array>;
+  }> {
+    const id = await this.readDocumentIdentityByKey(uniqueFormKey);
+    try {
+      const doc = JSON.parse(new TextDecoder().decode(await this.api.download(id.documentId))) as Record<string, unknown>;
+      const files = (Array.isArray(doc["files"]) ? doc["files"] : []) as StoredFile[];
+      return {
+        submission: {
+          unique_form_key: uniqueFormKey,
+          subject: (doc["subject"] ?? { kind: "consult", consultSubmissionId: "" }) as Subject,
+          scope: String(doc["scope"] ?? ""),
+          entitlements: (Array.isArray(doc["entitlements"]) ? doc["entitlements"] : []) as string[],
+          answers: (doc["answers"] ?? {}) as Record<string, never>,
+          files,
+          submitted_at: id.submitted_at,
+          fingerprint: id.fingerprint,
+        },
+        folderId: id.folderId,
+        download: async (ref: string) => {
+          const m = /^wd:([A-Za-z0-9]{20,64})$/.exec(ref);
+          if (!m) throw stageError("CORRUPT", "WD_DOCUMENT_REF_INVALID", "file reference is not valid");
+          const item = await this.api.getItem(m[1] as string);
+          if (item.kind !== "file" || item.parent_id !== id.folderId) throw stageError("CORRUPT", "WD_DOCUMENT_REF_INVALID", "file is outside the submission folder");
+          return this.api.download(item.id);
+        },
+      };
     } catch (e) {
       throw mapWd(e);
     }

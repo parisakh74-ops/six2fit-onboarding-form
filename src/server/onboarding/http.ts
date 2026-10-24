@@ -10,6 +10,8 @@ import { CompositeSubjectDirectory, DealSubjectDirectory } from "./links/deal-di
 import { productMapFromEnv } from "./links/product-map";
 import type { CrmDealReader } from "./links/types";
 import { createCrmReader, type ZohoCrmReader } from "./links/crm-reader";
+import { notionSyncEnabled } from "./notion/config";
+import { createNotionRuntime, type NotionOverrides, type NotionRuntime } from "./notion/runtime";
 
 /** Largest accepted request body. The form allows up to 7 files of 20 MB; photos are optional, so the limit is generous but bounded. */
 export const DEFAULT_MAX_BODY_BYTES = 80 * 1024 * 1024;
@@ -20,6 +22,8 @@ export type Runtime = {
   maxBodyBytes: number;
   /** CRM-backed persistence details for the operations endpoints (readiness, reconciliation). Absent for the `file` store. */
   ops?: { crm: CrmRuntime; reader: ZohoCrmReader | undefined; readerSharesWriterGrant: boolean; storageDir: string };
+  /** Notion follow-up sync (test target only); absent unless `SIX2FIT_NOTION_SYNC=true`. */
+  notion?: NotionRuntime;
 };
 export type Deps = { runtime?: () => Runtime };
 
@@ -34,7 +38,7 @@ const req = (env: Record<string, string | undefined>, name: string): string => {
  * `dealReader` is the READ-ONLY CRM reader for Deal-bound links. Without it the `crm` store builds the read-only Sandbox reader (links/crm-reader.ts); the `file` store has none and
  * Deal links fail closed exactly as before; Consultation links are unaffected either way.
  */
-export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader } = {}, overrides: CrmRuntimeOverrides = {}): Runtime {
+export function runtimeFromEnv(env: Record<string, string | undefined> = process.env, extras: { dealReader?: CrmDealReader; notion?: NotionOverrides } = {}, overrides: CrmRuntimeOverrides = {}): Runtime {
   if (req(env, "SIX2FIT_STAGING_MODE") !== "true") throw new StoreError("NOT_CONFIGURED", "staging mode disabled", "CONFIG");
   const kind0 = (env["SIX2FIT_ONBOARDING_STORE"] ?? "file").trim().toLowerCase();
   // O1: Consultation hand-off tokens are refused unless explicitly enabled for development/staging, and never with the CRM store.
@@ -61,6 +65,21 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
   // (one per process); the `file` store (development) keeps failing closed for Deal links exactly as before.
   const built = !extras.dealReader && kind === "crm" ? createCrmReader(env, overrides) : undefined;
   const dealReader = extras.dealReader ?? built?.reader;
+  // Notion follow-up: enabled explicitly, configured fail-closed (a bad configuration blocks the runtime instead of silently
+  // dropping Notion entries), and only on top of CRM + WorkDrive persistence.
+  let notion: NotionRuntime | undefined;
+  if (notionSyncEnabled(env)) {
+    if (!crmRuntime) throw new StoreError("NOT_CONFIGURED", "notion sync needs the crm store", "CONFIG");
+    // Read-only Product.Fitness (Deal -> Product). A reader that cannot serve it leaves the form type empty (never inferred).
+    const fitnessReader = extras.dealReader ?? built?.reader;
+    const resolveFitness = fitnessReader?.getProductFitness
+      ? async (dealId: string): Promise<string | null> => {
+          const deal = await fitnessReader.getDeal(dealId);
+          return deal?.productId ? ((await fitnessReader.getProductFitness?.(deal.productId)) ?? null) : null;
+        }
+      : undefined;
+    notion = createNotionRuntime(env, storageDir, crmRuntime.workdrive?.storage, { ...(resolveFitness ? { resolveFitness } : {}), log: (event, fields) => console.info(JSON.stringify({ event, ...fields })), ...extras.notion });
+  }
   const payments = new FactStore(join(storageDir, "payments"));
   const service = createOnboardingService({
     store,
@@ -84,12 +103,20 @@ export function runtimeFromEnv(env: Record<string, string | undefined> = process
     ),
     sink,
     secret,
+    ...(notion
+      ? {
+          // Awaited: the pending sync is durable in the Notion ledger before success is returned; the bounded inline attempt never fails
+          // the request, and reconciliation (ops endpoint) finishes whatever is left. Nothing depends on work after the response.
+          afterPersist: (record, fx, persistedAt) => notion.registerAndSync(record, fx, persistedAt),
+        }
+      : {}),
     log: (event, fields) => console.info(JSON.stringify({ event, ...fields })),
   });
   const limit = Number(env["SIX2FIT_ONBOARDING_MAX_BODY_BYTES"]);
   return {
     service,
     maxBodyBytes: Number.isFinite(limit) && limit > 0 ? limit : DEFAULT_MAX_BODY_BYTES,
+    ...(notion ? { notion } : {}),
     ...(crmRuntime ? { ops: { crm: crmRuntime, reader: built?.reader, readerSharesWriterGrant: built?.sharedGrant ?? true, storageDir } } : {}),
   };
 }
